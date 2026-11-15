@@ -1,0 +1,46 @@
+@import "tailwindcss";
+@import "@nuxt/ui";
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  overscroll-behavior: none;
+}
+
+.uplot {
+  font-family: inherit;
+}
+
+/* Browser-drawn surfaces, themed to match. */
+::selection {
+  background: color-mix(in oklab, var(--ui-primary) 28%, transparent);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--ui-border-accented) transparent;
+}
+
+input,
+textarea {
+  caret-color: var(--ui-primary);
+}
+
+code {
+  font-size: 0.95em;
+}
+
+/* uPlot's legend, in the app's type and colours. */
+.u-legend {
+  font-size: 0.75rem;
+  color: var(--ui-text-muted);
+}
+
+.u-legend .u-value {
+  font-variant-numeric: tabular-nums;
+  color: var(--ui-text-highlighted);
+}

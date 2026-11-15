@@ -1,0 +1,11 @@
+/target
+# Real client logs used for local checking. Never commit these.
+/samples
+node_modules
+dist
+crates/app/src-tauri/gen
+auto-imports.d.ts
+components.d.ts
+# Local assistant tooling and design-skill state: not part of the project.
+/.claude
+/.impeccable

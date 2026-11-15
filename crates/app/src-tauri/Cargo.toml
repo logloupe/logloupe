@@ -1,0 +1,27 @@
+[package]
+name = "loga-app"
+description = "Log analyser desktop app."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "loga-app"
+path = "src/main.rs"
+
+[dependencies]
+chrono = "0.4.45"
+loga-core = { path = "../../core" }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+tauri = "2.12.5"
+tauri-plugin-dialog = "2.8.4"
+
+[build-dependencies]
+tauri-build = "2.7.4"
+
+[features]
+# On by default so a plain `cargo build` embeds the built frontend. `pnpm tauri
+# dev` turns it off to load the Vite dev server instead.
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]

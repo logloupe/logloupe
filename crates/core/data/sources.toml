@@ -1,0 +1,86 @@
+# Traffic source rules. Copy this file to <data-dir>/sources.toml to edit it.
+#
+# Host patterns:
+#   "bing.com"   matches bing.com and any subdomain of it
+#   "google.*"   matches google.com, www.google.co.uk, google.de ... (any TLD)
+# Categories are checked in the order: ai, email, social, search. The first
+# match wins, so gemini.google.com is `ai` and mail.google.com is `email`
+# even though google.* is a search host.
+
+[ai]
+hosts = [
+  "chatgpt.com", "chat.openai.com", "openai.com",
+  "perplexity.ai",
+  "claude.ai",
+  "gemini.google.com", "bard.google.com", "notebooklm.google.com",
+  "copilot.microsoft.com", "copilot.cloud.microsoft",
+  "you.com", "phind.com", "poe.com",
+  "chat.mistral.ai", "chat.deepseek.com", "grok.com", "meta.ai",
+]
+
+[email]
+hosts = [
+  "mail.google.com", "com.google.android.gm",
+  "outlook.live.com", "outlook.office.com", "outlook.office365.com", "outlook.cloud.microsoft",
+  "mail.yahoo.com", "mail.proton.me", "mail.aol.com", "mail.zoho.com",
+  "webmail.*", "roundcube.*",
+]
+
+[social]
+hosts = [
+  "facebook.com", "fb.com", "fb.me", "messenger.com", "instagram.com", "threads.net", "threads.com",
+  "twitter.com", "x.com", "t.co",
+  "linkedin.com", "lnkd.in",
+  "youtube.com", "youtu.be",
+  "pinterest.*", "pin.it",
+  "reddit.com", "tiktok.com", "snapchat.com",
+  "bsky.app", "mastodon.social",
+  "whatsapp.com", "wa.me", "t.me", "telegram.org",
+  "vk.com", "weibo.com", "tumblr.com", "quora.com",
+  "com.facebook.katana", "com.instagram.android", "com.linkedin.android",
+]
+
+[search]
+hosts = [
+  "google.*", "com.google.android.googlequicksearchbox",
+  "bing.com",
+  "duckduckgo.com",
+  "yahoo.com", "yahoo.co.jp",
+  "yandex.*", "ya.ru",
+  "baidu.com",
+  "ecosia.org",
+  "search.brave.com",
+  "startpage.com",
+  "qwant.com",
+  "kagi.com",
+  "naver.com",
+  "seznam.cz",
+  "sogou.com",
+  "so.com",
+  "aol.com",
+  "ask.com",
+  "mojeek.com",
+  "presearch.com",
+  "petalsearch.com",
+]
+
+[campaign]
+# A request with any of these query parameters is a campaign hit.
+params = [
+  "utm_source", "utm_medium", "utm_campaign",
+  "gclid", "gbraid", "wbraid", "dclid", "gad_source",
+  "fbclid", "msclkid", "ttclid", "twclid", "li_fat_id", "mc_cid", "_hsenc", "hsa_cam",
+]
+
+[pages]
+# A GET for a path ending in one of these is an asset, not a page.
+asset_extensions = [
+  "css", "js", "mjs", "map", "json", "xml", "txt", "rss", "atom",
+  "png", "jpg", "jpeg", "gif", "webp", "avif", "svg", "ico", "bmp", "tif", "tiff", "heic",
+  "woff", "woff2", "ttf", "otf", "eot",
+  "mp4", "webm", "mov", "m4v", "mp3", "ogg", "wav", "m3u8", "ts",
+  "pdf", "zip", "gz", "rar", "7z", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "csv",
+  "wasm", "webmanifest", "vtt",
+]
+# Paths under these prefixes are never pages (WordPress internals and similar).
+non_page_prefixes = ["/wp-admin/", "/wp-json/", "/wp-includes/", "/wp-content/", "/wp-cron.php", "/xmlrpc.php", "/.well-known/"]

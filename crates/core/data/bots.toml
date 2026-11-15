@@ -1,0 +1,325 @@
+# Bot registry. Copy this file to <data-dir>/bots.toml to edit it.
+#
+# Verification is done per operator: all of an operator's published lists are
+# merged, so a GPTBot user agent arriving from a ChatGPT-User address is still
+# verified. The bot's name and kind come from the user agent.
+#
+# ua_match: case-insensitive substrings. Operators and bots are checked in file
+#           order and the first match wins, so put specific names first.
+# kind:     search | ai-training | ai-search | ai-user | seo-tool | monitor | social | other
+# range_urls: published lists in the shape
+#           {"prefixes": [{"ipv4Prefix": "..."}, {"ipv6Prefix": "..."}]}
+#           or whois://<server>/<query> for the routes a network announces
+# min_prefixes: a fetched set with fewer prefixes than this is rejected.
+# extra_ranges: networks registered to the operator that its lists leave out.
+# rdns:     forward-confirmed reverse DNS suffixes (not used yet).
+
+[[operator]]
+key = "google"
+name = "Google"
+min_prefixes = 20
+range_urls = ["https://developers.google.com/static/crawling/ipranges/common-crawlers.json"]
+rdns = ["googlebot.com", "google.com"]
+bots = [
+  { key = "googlebot", name = "Googlebot", kind = "search", ua_match = ["googlebot"] },
+  { key = "googleother", name = "GoogleOther", kind = "other", ua_match = ["googleother"] },
+  { key = "google-cloudvertexbot", name = "Google-CloudVertexBot", kind = "ai-training", ua_match = ["google-cloudvertexbot"] },
+]
+
+# Google's other agents crawl from the special-crawler and user-triggered
+# lists. They are checked against all of Google's lists, never the common list
+# alone, or they would be wrongly flagged as fake.
+[[operator]]
+key = "google-other"
+name = "Google (special and user-triggered)"
+min_prefixes = 20
+range_urls = [
+  "https://developers.google.com/static/crawling/ipranges/special-crawlers.json",
+  "https://developers.google.com/static/crawling/ipranges/user-triggered-fetchers.json",
+  "https://developers.google.com/static/crawling/ipranges/user-triggered-fetchers-google.json",
+  "https://developers.google.com/static/crawling/ipranges/common-crawlers.json",
+]
+rdns = ["google.com", "googleusercontent.com"]
+bots = [
+  { key = "adsbot-google", name = "AdsBot-Google", kind = "other", ua_match = ["adsbot-google"] },
+  { key = "storebot-google", name = "Storebot-Google", kind = "search", ua_match = ["storebot-google"] },
+  { key = "mediapartners-google", name = "Mediapartners-Google", kind = "other", ua_match = ["mediapartners-google"] },
+  { key = "google-inspectiontool", name = "Google-InspectionTool", kind = "search", ua_match = ["google-inspectiontool"] },
+  { key = "google-site-verification", name = "Google-Site-Verification", kind = "other", ua_match = ["google-site-verification"] },
+  { key = "feedfetcher-google", name = "FeedFetcher-Google", kind = "other", ua_match = ["feedfetcher-google"] },
+  { key = "google-read-aloud", name = "Google-Read-Aloud", kind = "other", ua_match = ["google-read-aloud"] },
+  { key = "apis-google", name = "APIs-Google", kind = "other", ua_match = ["apis-google"] },
+]
+
+[[operator]]
+key = "bing"
+name = "Microsoft Bing"
+min_prefixes = 20
+range_urls = ["https://www.bing.com/toolbox/bingbot.json"]
+rdns = ["search.msn.com"]
+bots = [
+  { key = "bingbot", name = "Bingbot", kind = "search", ua_match = ["bingbot"] },
+  { key = "bingpreview", name = "BingPreview", kind = "search", ua_match = ["bingpreview"] },
+  { key = "adidxbot", name = "AdIdxBot", kind = "other", ua_match = ["adidxbot"] },
+  { key = "msnbot", name = "MSNBot", kind = "search", ua_match = ["msnbot"] },
+]
+
+[[operator]]
+key = "openai"
+name = "OpenAI"
+min_prefixes = 10
+range_urls = [
+  "https://openai.com/gptbot.json",
+  "https://openai.com/searchbot.json",
+  "https://openai.com/chatgpt-user.json",
+  "https://openai.com/adsbot.json",
+]
+bots = [
+  { key = "gptbot", name = "GPTBot", kind = "ai-training", ua_match = ["gptbot"] },
+  { key = "oai-searchbot", name = "OAI-SearchBot", kind = "ai-search", ua_match = ["oai-searchbot"] },
+  { key = "chatgpt-user", name = "ChatGPT-User", kind = "ai-user", ua_match = ["chatgpt-user"] },
+  { key = "oai-adsbot", name = "OAI-AdsBot", kind = "other", ua_match = ["oai-adsbot"] },
+]
+
+[[operator]]
+key = "anthropic"
+name = "Anthropic"
+min_prefixes = 10
+range_urls = ["https://claude.com/crawling/bots.json"]
+# 160.79.104.0/21 is registered to Anthropic (ARIN handle ANTHR5-ARIN) and is
+# where Claude-User requests come from, but the published list leaves it out.
+extra_ranges = ["160.79.104.0/21"]
+bots = [
+  { key = "claudebot", name = "ClaudeBot", kind = "ai-training", ua_match = ["claudebot"] },
+  { key = "claude-searchbot", name = "Claude-SearchBot", kind = "ai-search", ua_match = ["claude-searchbot"] },
+  { key = "claude-user", name = "Claude-User", kind = "ai-user", ua_match = ["claude-user"] },
+]
+
+[[operator]]
+key = "perplexity"
+name = "Perplexity"
+min_prefixes = 10
+range_urls = [
+  "https://www.perplexity.com/perplexitybot.json",
+  "https://www.perplexity.com/perplexity-user.json",
+]
+bots = [
+  { key = "perplexitybot", name = "PerplexityBot", kind = "ai-search", ua_match = ["perplexitybot"] },
+  { key = "perplexity-user", name = "Perplexity-User", kind = "ai-user", ua_match = ["perplexity-user"] },
+]
+
+[[operator]]
+key = "apple"
+name = "Apple"
+min_prefixes = 10
+range_urls = ["https://search.developer.apple.com/applebot.json"]
+rdns = ["applebot.apple.com"]
+bots = [
+  { key = "applebot", name = "Applebot", kind = "search", ua_match = ["applebot"] },
+]
+
+[[operator]]
+key = "commoncrawl"
+name = "Common Crawl"
+min_prefixes = 3
+range_urls = ["https://index.commoncrawl.org/ccbot.json"]
+bots = [
+  { key = "ccbot", name = "CCBot", kind = "ai-training", ua_match = ["ccbot"] },
+]
+
+# Operators below publish no list in the supported shape (or none that could
+# be confirmed), so their bots are `unverifiable` until reverse DNS is wired in.
+
+[[operator]]
+key = "amazon"
+name = "Amazon"
+rdns = ["crawl.amazonbot.amazon"]
+bots = [
+  { key = "amazonbot", name = "Amazonbot", kind = "ai-training", ua_match = ["amazonbot"] },
+]
+
+# Meta publishes no JSON list. Its crawler documentation says to verify against
+# the routes its network (AS32934) announces, from the RADB routing registry.
+[[operator]]
+key = "meta"
+name = "Meta"
+min_prefixes = 50
+range_urls = ["whois://whois.radb.net/-i origin AS32934"]
+bots = [
+  { key = "meta-externalagent", name = "Meta-ExternalAgent", kind = "ai-training", ua_match = ["meta-externalagent"] },
+  { key = "meta-externalfetcher", name = "Meta-ExternalFetcher", kind = "ai-user", ua_match = ["meta-externalfetcher"] },
+  { key = "meta-webindexer", name = "Meta-WebIndexer", kind = "ai-search", ua_match = ["meta-webindexer"] },
+  { key = "facebookexternalhit", name = "FacebookExternalHit", kind = "social", ua_match = ["facebookexternalhit"] },
+  { key = "facebookbot", name = "FacebookBot", kind = "ai-training", ua_match = ["facebookbot"] },
+]
+
+[[operator]]
+key = "duckduckgo"
+name = "DuckDuckGo"
+bots = [
+  { key = "duckassistbot", name = "DuckAssistBot", kind = "ai-user", ua_match = ["duckassistbot"] },
+  { key = "duckduckbot", name = "DuckDuckBot", kind = "search", ua_match = ["duckduckbot"] },
+]
+
+[[operator]]
+key = "yandex"
+name = "Yandex"
+rdns = ["yandex.ru", "yandex.net", "yandex.com"]
+bots = [
+  { key = "yandexbot", name = "YandexBot", kind = "search", ua_match = ["yandex"] },
+]
+
+[[operator]]
+key = "baidu"
+name = "Baidu"
+rdns = ["baidu.com", "baidu.jp"]
+bots = [
+  { key = "baiduspider", name = "Baiduspider", kind = "search", ua_match = ["baiduspider"] },
+]
+
+[[operator]]
+key = "bytedance"
+name = "ByteDance"
+bots = [
+  { key = "bytespider", name = "Bytespider", kind = "ai-training", ua_match = ["bytespider"] },
+]
+
+[[operator]]
+key = "you"
+name = "You.com"
+bots = [
+  { key = "youbot", name = "YouBot", kind = "ai-search", ua_match = ["youbot"] },
+]
+
+[[operator]]
+key = "exa"
+name = "Exa"
+bots = [
+  { key = "exasearchbot", name = "ExaSearchBot", kind = "ai-search", ua_match = ["exasearchbot"] },
+]
+
+[[operator]]
+key = "huawei"
+name = "Huawei"
+bots = [
+  { key = "petalbot", name = "PetalBot", kind = "search", ua_match = ["petalbot"] },
+]
+
+[[operator]]
+key = "ahrefs"
+name = "Ahrefs"
+bots = [
+  { key = "ahrefsbot", name = "AhrefsBot", kind = "seo-tool", ua_match = ["ahrefsbot", "ahrefssiteaudit"] },
+]
+
+[[operator]]
+key = "semrush"
+name = "Semrush"
+bots = [
+  { key = "semrushbot", name = "SemrushBot", kind = "seo-tool", ua_match = ["semrushbot", "siteauditbot"] },
+]
+
+[[operator]]
+key = "majestic"
+name = "Majestic"
+bots = [
+  { key = "mj12bot", name = "MJ12bot", kind = "seo-tool", ua_match = ["mj12bot"] },
+]
+
+[[operator]]
+key = "moz"
+name = "Moz"
+bots = [
+  { key = "dotbot", name = "DotBot", kind = "seo-tool", ua_match = ["dotbot", "rogerbot"] },
+]
+
+[[operator]]
+key = "dataforseo"
+name = "DataForSEO"
+bots = [
+  { key = "dataforseobot", name = "DataForSeoBot", kind = "seo-tool", ua_match = ["dataforseobot"] },
+]
+
+[[operator]]
+key = "screaming-frog"
+name = "Screaming Frog"
+bots = [
+  { key = "screaming-frog", name = "Screaming Frog SEO Spider", kind = "seo-tool", ua_match = ["screaming frog"] },
+]
+
+[[operator]]
+key = "x"
+name = "X"
+bots = [
+  { key = "twitterbot", name = "Twitterbot", kind = "social", ua_match = ["twitterbot"] },
+]
+
+[[operator]]
+key = "linkedin"
+name = "LinkedIn"
+bots = [
+  { key = "linkedinbot", name = "LinkedInBot", kind = "social", ua_match = ["linkedinbot"] },
+]
+
+[[operator]]
+key = "pinterest"
+name = "Pinterest"
+bots = [
+  { key = "pinterestbot", name = "Pinterestbot", kind = "social", ua_match = ["pinterestbot", "pinterest/"] },
+]
+
+[[operator]]
+key = "slack"
+name = "Slack"
+bots = [
+  { key = "slackbot", name = "Slackbot", kind = "social", ua_match = ["slackbot", "slack-imgproxy"] },
+]
+
+[[operator]]
+key = "discord"
+name = "Discord"
+bots = [
+  { key = "discordbot", name = "Discordbot", kind = "social", ua_match = ["discordbot"] },
+]
+
+[[operator]]
+key = "telegram"
+name = "Telegram"
+bots = [
+  { key = "telegrambot", name = "TelegramBot", kind = "social", ua_match = ["telegrambot"] },
+]
+
+[[operator]]
+key = "whatsapp"
+name = "WhatsApp"
+bots = [
+  { key = "whatsapp", name = "WhatsApp", kind = "social", ua_match = ["whatsapp/"] },
+]
+
+[[operator]]
+key = "uptimerobot"
+name = "UptimeRobot"
+bots = [
+  { key = "uptimerobot", name = "UptimeRobot", kind = "monitor", ua_match = ["uptimerobot"] },
+]
+
+[[operator]]
+key = "pingdom"
+name = "Pingdom"
+bots = [
+  { key = "pingdom", name = "Pingdom", kind = "monitor", ua_match = ["pingdom"] },
+]
+
+[[operator]]
+key = "statuscake"
+name = "StatusCake"
+bots = [
+  { key = "statuscake", name = "StatusCake", kind = "monitor", ua_match = ["statuscake"] },
+]
+
+[[operator]]
+key = "monit"
+name = "Monit"
+bots = [
+  { key = "monit", name = "Monit", kind = "monitor", ua_match = ["monit/"] },
+]
