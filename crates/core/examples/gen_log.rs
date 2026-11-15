@@ -7,9 +7,10 @@
 //! 2026-11-01), `--seed <N>`.
 //!
 //! The output is deterministic for a given seed. It contains a browser / bot /
-//! tool mix, a fake Googlebot (Googlebot user agent from an address outside
-//! Google's ranges), and one burst from a single address about 40% of the way
-//! through.
+//! tool mix, fake bots (Googlebot, GPTBot and ClaudeBot user agents from an
+//! address outside those operators' ranges), and one burst from a single
+//! address about 40% of the way through. Genuine bots use addresses inside the
+//! ranges their operators published in November 2026.
 
 use std::fs::File;
 use std::io::{self, BufWriter, Write};
@@ -86,6 +87,26 @@ const BOTS: &[(&str, &str)] = &[
     (
         "Mozilla/5.0 (compatible; AhrefsBot/7.0; +http://ahrefs.com/robot/)",
         "54.36.148",
+    ),
+    (
+        "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; OAI-SearchBot/1.3; +https://openai.com/searchbot",
+        "135.234.64",
+    ),
+    (
+        "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; ChatGPT-User/1.0; +https://openai.com/bot",
+        "132.196.86",
+    ),
+    (
+        "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Claude-User/1.0; +Claude-User@anthropic.com)",
+        "160.79.106",
+    ),
+    (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36 (compatible; meta-externalagent/1.1 (+https://developers.facebook.com/docs/sharing/webmasters/crawler))",
+        "102.132.100",
+    ),
+    (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15 (Applebot/0.1; +http://www.apple.com/go/applebot)",
+        "17.166.150",
     ),
 ];
 
@@ -249,7 +270,8 @@ fn main() -> io::Result<()> {
         } else if roll < 10 {
             // Fake Googlebot: the user agent from an address Google does not own.
             ip = format!("45.148.10.{}", rng.below(8) + 1);
-            ua = BOTS[0].0;
+            // Mostly Googlebot, sometimes GPTBot or ClaudeBot.
+            ua = BOTS[[0, 0, 0, 2, 3][rng.below(5) as usize]].0;
             path = rng.pick(PROBES).to_owned();
             referer = "-".to_owned();
             status = if rng.chance(700) { 404 } else { 200 };

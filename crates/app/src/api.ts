@@ -229,6 +229,7 @@ export interface ReenrichResult {
 }
 
 export const api = {
+  initialView: () => call<string | null>('initial_view'),
   appInfo: () => call<{ version: string; data_dir: string }>('app_info'),
   listSites: () => call<SiteEntry[]>('list_sites'),
   addSite: (slug: string, settings: SettingsPatch) => call<SiteStats>('add_site', { slug, settings }),

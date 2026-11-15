@@ -73,6 +73,15 @@ fn app_info(state: State<'_, AppState>) -> AppInfo {
     }
 }
 
+/// A screen to open on at start-up, from the `LOGLOUPE_VIEW` environment
+/// variable (a report name, or ingest, storage, sites, settings).
+#[tauri::command]
+fn initial_view() -> Option<String> {
+    std::env::var("LOGLOUPE_VIEW")
+        .ok()
+        .filter(|v| !v.is_empty())
+}
+
 #[tauri::command]
 async fn list_sites(state: State<'_, AppState>) -> CommandResult<Vec<SiteEntry>> {
     let (dir, opts) = (state.dir.clone(), state.opts.clone());
@@ -377,6 +386,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             app_info,
+            initial_view,
             list_sites,
             add_site,
             update_site,

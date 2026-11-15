@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { errorMessage, inTauri } from './api'
+import { api, errorMessage, inTauri } from './api'
 import { currentSite, loadSites, selectSite, state } from './state'
 import FilterBar from './components/FilterBar.vue'
 import IngestView from './views/IngestView.vue'
@@ -72,6 +72,9 @@ onMounted(async () => {
     await loadSites()
     if (currentSite.value?.stats?.rows) state.view = 'overview'
     else if (state.sites.length) state.view = 'ingest'
+    // LOGLOUPE_VIEW can ask for a particular screen at start-up.
+    const wanted = await api.initialView().catch(() => null)
+    if (wanted && groups.some((g) => g.items.some((i) => i.id === wanted))) state.view = wanted
   } catch (e) {
     startError.value = errorMessage(e)
   }
