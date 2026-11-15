@@ -1,6 +1,6 @@
-# Log Analyser — Build Spec
+# Logloupe — Build Spec
 
-Working name: `log-analyser` (binary: `loga`). Both are placeholders.
+Name: **Logloupe** (binary: `logloupe`). A loupe is the small magnifier a jeweller uses to tell the real thing from a fake.
 
 A cross-platform tool for analysing web server access logs: where traffic comes from, what bots are doing, which bots are fake, suspected denial-of-service activity, and SEO crawl problems. It ships as a desktop app and as a command-line binary that shares the same engine.
 
@@ -30,12 +30,12 @@ A cross-platform tool for analysing web server access logs: where traffic comes 
 A Cargo workspace with three crates. **All logic lives in `core`.** The other two are thin.
 
 ```
-log-analyser/
+logloupe/
 ├── Cargo.toml              # workspace
 ├── SPEC.md
 ├── crates/
 │   ├── core/               # library: parse, enrich, store, report. No UI, no CLI code.
-│   ├── cli/                # binary `loga`: argument parsing + JSON/table output
+│   ├── cli/                # binary `logloupe`: argument parsing + JSON/table output
 │   └── app/                # Tauri 2 app: src-tauri (Rust commands) + ui (web frontend)
 ├── fixtures/               # sample and synthetic logs for tests
 └── .github/workflows/      # CI + release builds
@@ -68,7 +68,7 @@ Use current stable versions of all crates; check them at build time rather than 
 
 ### 3.1 Layout
 
-A data directory (OS-appropriate via the `directories` crate; overridable with `--data-dir` or `LOGA_DATA_DIR` for server use):
+A data directory (OS-appropriate via the `directories` crate; overridable with `--data-dir` or `LOGLOUPE_DATA_DIR` for server use):
 
 ```
 <data-dir>/
@@ -184,7 +184,7 @@ Per-site setting, changeable at any time:
 
 | Mode | Behaviour |
 |---|---|
-| `none` | Analyse then discard. Raw rows and rollups are cleared at the start of the next ingest, when the site is closed in the app, or by `loga db clear <slug>`. The CLI has no session, so server-side callers clear explicitly. |
+| `none` | Analyse then discard. Raw rows and rollups are cleared at the start of the next ingest, when the site is closed in the app, or by `logloupe db clear <slug>`. The CLI has no session, so server-side callers clear explicitly. |
 | `days: N` | Raw rows older than N days are deleted after each ingest. Rollups are kept. |
 | `forever` | Nothing is deleted automatically. |
 
@@ -339,7 +339,7 @@ Matching rules carried over from those projects:
 
 Range handling:
 
-- `loga ranges update` (and a button in the app) fetches all lists, validates them, and stores them with a fetch timestamp. Auto-refresh if older than 24 hours when online. Work fully offline from the cache.
+- `logloupe ranges update` (and a button in the app) fetches all lists, validates them, and stores them with a fetch timestamp. Auto-refresh if older than 24 hours when online. Work fully offline from the cache.
 - Keep the previous copy when a fetch fails or returns something unparseable.
 - Load ranges into a prefix trie / sorted interval structure for O(log n) lookups, IPv4 and IPv6.
 - Keep history. Each cached prefix records `first_seen` (the first fetch that contained it) and, when an update drops it, `retired_at` instead of being deleted; it still verifies requests dated before that day. Record per operator a `tracked_since` date (the first successful fetch) and the date of every successful fetch, so historical logs can be judged against what was published at the time.
@@ -350,7 +350,7 @@ Also flag, as a separate report rather than a `bot_verify` value: browser-like u
 
 ### 5.2 Country and ASN
 
-Read local `.mmdb` files. Default to DB-IP Lite (country + ASN; free, no account, attribution required), with MaxMind GeoLite2 supported if the user supplies their own files or licence key. Confirm current licence terms and download URLs before wiring in an auto-download. `loga geo update` fetches the monthly files. If no database is present, ingest still works and the columns are NULL.
+Read local `.mmdb` files. Default to DB-IP Lite (country + ASN; free, no account, attribution required), with MaxMind GeoLite2 supported if the user supplies their own files or licence key. Confirm current licence terms and download URLs before wiring in an auto-download. `logloupe geo update` fetches the monthly files. If no database is present, ingest still works and the columns are NULL.
 
 ### 5.3 User-agent classification
 
@@ -360,9 +360,9 @@ Classify each distinct UA string once into `category`, `family`, and `bot_key`. 
 
 Enriched columns go stale when their inputs change: the bot registry and range lists (`bot_verify`), geo files (`country`, `asn`, `asn_org`), UA rules (`user_agents`, and through it `is_page`), and the source host lists or the site's own hostnames (`source_type`). Rows ingested before a feature existed have NULLs in its columns.
 
-`loga reenrich <slug> [--from DATE] [--to DATE] [--only ua,source,geo,bots]` recomputes those columns from the stored fields for a date range, then rebuilds the rollups for the affected days, in one transaction. The app has the same action on the Storage screen.
+`logloupe reenrich <slug> [--from DATE] [--to DATE] [--only ua,source,geo,bots]` recomputes those columns from the stored fields for a date range, then rebuilds the rollups for the affected days, in one transaction. The app has the same action on the Storage screen.
 
-The `meta` table records the version or hash of each input last applied. `loga site show` and the app say when stored rows are behind the current inputs, and which `--only` groups would bring them up to date. Nothing re-enriches automatically.
+The `meta` table records the version or hash of each input last applied. `logloupe site show` and the app say when stored rows are behind the current inputs, and which `--only` groups would bring them up to date. Nothing re-enriches automatically.
 ---
 
 ## 6. Reports
@@ -437,19 +437,19 @@ From any row in any report, the user can open the matching raw requests, paged f
 ### 7.1 Commands
 
 ```
-loga site add <slug> --host example.com [--host www.example.com] [--timezone Europe/London]
+logloupe site add <slug> --host example.com [--host www.example.com] [--timezone Europe/London]
                      [--retention forever|none|days:N] [--overlap error|skip|allow] [--client-ip auto|peer|forwarded]
                      [--edge-cache true|false]
-loga site list | show <slug> | set <slug> [same options as add] | remove <slug>
-loga ingest <slug> <files or globs...> [--format auto|combined|<name>] [--force] [--overlap error|skip|allow] [--no-dns]
-loga report <slug> <report-name> [--from DATE] [--to DATE] [filters...] [--table NAME] [--limit N] [--offset N] [--format json|table|csv]
-loga reports                       # list available report names, their tables and their parameters
-loga urls <slug> sitemap [URL] | import <file> | clear
-loga ranges update | status
-loga geo update | status
-loga db stats [<slug>] | files <slug> | prune <slug> --before DATE [--rollups] | delete-file <slug> <file-id>
+logloupe site list | show <slug> | set <slug> [same options as add] | remove <slug>
+logloupe ingest <slug> <files or globs...> [--format auto|combined|<name>] [--force] [--overlap error|skip|allow] [--no-dns]
+logloupe report <slug> <report-name> [--from DATE] [--to DATE] [filters...] [--table NAME] [--limit N] [--offset N] [--format json|table|csv]
+logloupe reports                       # list available report names, their tables and their parameters
+logloupe urls <slug> sitemap [URL] | import <file> | clear
+logloupe ranges update | status
+logloupe geo update | status
+logloupe db stats [<slug>] | files <slug> | prune <slug> --before DATE [--rollups] | delete-file <slug> <file-id>
         | clear <slug> | compact <slug>
-loga reenrich <slug> [--from DATE] [--to DATE] [--only ua,source,geo,bots]
+logloupe reenrich <slug> [--from DATE] [--to DATE] [--only ua,source,geo,bots]
 ```
 
 Global flags: `--data-dir`, `--memory-limit`, `--threads`, `--wait-lock <seconds>`, `--quiet`, `--json`, `--offline` (never fetch; use only the cached ranges).
@@ -562,7 +562,7 @@ Record the measured numbers in the README after each phase, and treat a clear re
 ## 13. Build and release
 
 - GitHub Actions matrix on push: test on `windows-latest`, `macos-latest`, `ubuntu-latest`.
-- On tag: build the Tauri app for Windows (x64), macOS (universal or arm64 + x64), Linux (AppImage/deb); build the standalone `loga` CLI for the same targets plus `x86_64-unknown-linux-gnu` for the Ubuntu server. Attach all to a GitHub release.
+- On tag: build the Tauri app for Windows (x64), macOS (universal or arm64 + x64), Linux (AppImage/deb); build the standalone `logloupe` CLI for the same targets plus `x86_64-unknown-linux-gnu` for the Ubuntu server. Attach all to a GitHub release.
 - macOS builds are unsigned at first. Document the first-launch override. Signing and notarisation can be added later with an Apple Developer account.
 - Windows builds are unsigned at first; document the SmartScreen prompt.
 - Development prerequisites to document in the README: Rust stable, Node LTS, Tauri's per-OS prerequisites (on Windows: MSVC build tools and WebView2).
@@ -575,11 +575,11 @@ Each phase ends with working software and passing tests. Do not start the next p
 
 **Phase 1 — Engine and CLI, traffic sources**
 - Workspace, `core`, `cli`. Site management, including time zone. Combined and combined + extras parsers (timing, vhost and forwarded-IP fields) with auto-detect. Local file ingest (plain and gzip). Schema, rollups, de-duplication and overlap handling (4.3). UA classification and `source_type` / `is_page`. Reports 6.1 (1–3, 5–6). JSON/table/CSV output, locking and exit codes.
-- Accept: ingest a real daily nginx log and a real cPanel log; ingesting a grown copy of a log adds only the new lines, and its gzipped copy is a no-op; `loga report <site> sources --format json` returns a valid envelope; ingest throughput and peak memory measured and recorded.
+- Accept: ingest a real daily nginx log and a real cPanel log; ingesting a grown copy of a log adds only the new lines, and its gzipped copy is a no-op; `logloupe report <site> sources --format json` returns a valid envelope; ingest throughput and peak memory measured and recorded.
 
 **Phase 2 — Enrichment**
 - Bot registry, range fetch/cache with history, verification, optional rDNS. Geo/ASN lookup. Proxy / CDN check and client IP selection (4.2). Custom log format strings. Re-enrichment (5.4). Reports 6.1 (4) and 6.2.
-- Accept: a fixture containing a fake Googlebot is flagged `fake`; a real Googlebot IP is `verified`; a proxied fixture with no forwarded-IP field yields `unverifiable`, not `fake`; `loga reenrich` fills geo and bot columns on rows ingested in Phase 1; works offline from cache.
+- Accept: a fixture containing a fake Googlebot is flagged `fake`; a real Googlebot IP is `verified`; a proxied fixture with no forwarded-IP field yields `unverifiable`, not `fake`; `logloupe reenrich` fills geo and bot columns on rows ingested in Phase 1; works offline from cache.
 
 **Phase 3 — Desktop app**
 - Tauri shell, sites, ingest with progress and cancel, report views for everything built so far, storage screen with retention, prune, compact, delete.
@@ -598,5 +598,5 @@ Each phase ends with working software and passing tests. Do not start the next p
 
 1. Put two or three real (anonymised) sample lines from each server type into `fixtures/`: plain nginx, any nginx with a custom `log_format`, and a cPanel domlog. The formats in this spec are assumed from defaults and must be checked against these.
 2. Note which sites sit behind Cloudflare or another proxy and whether their logs record the real client IP.
-3. Decide the final project/binary name. (Frontend framework decided: Vue 3 + Nuxt UI.)
+3. ~~Decide the final project/binary name~~ Decided: Logloupe. (Frontend framework decided: Vue 3 + Nuxt UI.)
 4. Note each site's time zone (3.4), and whether it is fed by more than one server, which decides its overlap policy (4.3).

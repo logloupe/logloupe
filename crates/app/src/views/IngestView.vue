@@ -12,7 +12,7 @@ const toast = useToast()
 
 const queued = ref<string[]>([])
 const force = ref(false)
-const offline = ref(localStorage.getItem('loga.offline') === 'true')
+const offline = ref(localStorage.getItem('logloupe.offline') === 'true')
 const running = ref(false)
 const progress = ref<IngestProgress | null>(null)
 const results = ref<FileReport[]>([])
@@ -50,7 +50,7 @@ async function start(overlap: 'skip' | 'allow' | null = null) {
   results.value = []
   notes.value = []
   progress.value = null
-  localStorage.setItem('loga.offline', String(offline.value))
+  localStorage.setItem('logloupe.offline', String(offline.value))
   try {
     const outcome = await api.ingestFiles(state.slug, queued.value, { force: force.value, overlap }, offline.value)
     results.value = outcome.files

@@ -601,7 +601,7 @@ pub fn require_cache(data_root: &Path, registry: &Registry) -> Result<()> {
         .all(|s| s.fetched_at.is_none())
     {
         return Err(Error::invalid(
-            "no bot IP ranges are cached yet; run `loga ranges update` while online",
+            "no bot IP ranges are cached yet; run `logloupe ranges update` while online",
         ));
     }
     Ok(())

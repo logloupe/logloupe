@@ -32,6 +32,8 @@ pub enum Granularity {
 pub struct Filters {
     /// 2, 3, 4 or 5.
     pub status_class: Option<u8>,
+    /// One exact response code, for example 504.
+    pub status: Option<u16>,
     pub path_prefix: Option<String>,
     /// An address, or a /24 (IPv4) or /48 (IPv6) network.
     pub ip: Option<String>,
@@ -214,6 +216,12 @@ pub const REPORTS: &[ReportInfo] = &[
         description: "Tools, HTTP libraries, and empty or unrecognised user agents.",
         tables: &["by_agent", "by_ip"],
         run: bots::undeclared,
+    },
+    ReportInfo {
+        name: "status-codes",
+        description: "Response codes over time, per code, and the URLs and addresses behind the errors.",
+        tables: &["by_status", "series", "error_paths", "error_ips"],
+        run: abuse::status_codes,
     },
     ReportInfo {
         name: "top-ips",
@@ -516,6 +524,9 @@ fn filter_conditions(f: &Filters, out: &mut Vec<String>) -> Result<()> {
         }
         let low = u32::from(class) * 100;
         out.push(format!("r.status BETWEEN {low} AND {}", low + 99));
+    }
+    if let Some(status) = f.status {
+        out.push(format!("r.status = {status}"));
     }
     if let Some(prefix) = &f.path_prefix {
         out.push(format!("starts_with(r.path, {})", quote(prefix)));

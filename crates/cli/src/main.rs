@@ -1,5 +1,5 @@
-//! `loga`: the command-line front end. Argument parsing and output only; all
-//! logic lives in `loga-core`.
+//! `logloupe`: the command-line front end. Argument parsing and output only; all
+//! logic lives in `logloupe-core`.
 
 use std::io::{IsTerminal, Write};
 use std::path::PathBuf;
@@ -9,11 +9,11 @@ use std::time::Duration;
 
 use chrono::{DateTime, NaiveDate};
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use loga_core::bots::{Registry, ranges as bot_ranges};
-use loga_core::ingest::{self, FileReport, FileStatus, IngestOptions};
-use loga_core::report::{self, Filters, Granularity, ReportParams, ReportResult, Table};
-use loga_core::store::{DataDir, Mode, OpenOptions, SettingsPatch, SiteSettings, Store};
-use loga_core::{Error, Result, maintain};
+use logloupe_core::bots::{Registry, ranges as bot_ranges};
+use logloupe_core::ingest::{self, FileReport, FileStatus, IngestOptions};
+use logloupe_core::report::{self, Filters, Granularity, ReportParams, ReportResult, Table};
+use logloupe_core::store::{DataDir, Mode, OpenOptions, SettingsPatch, SiteSettings, Store};
+use logloupe_core::{Error, Result, maintain};
 use serde_json::{Value as Json, json};
 
 mod output;
@@ -24,7 +24,7 @@ use output::{bytes, number, print_table};
 const EXIT_LOCKED: u8 = 75;
 
 #[derive(Parser)]
-#[command(name = "loga", version, about = "Analyse web server access logs.")]
+#[command(name = "logloupe", version, about = "Analyse web server access logs.")]
 struct Cli {
     #[command(flatten)]
     global: Global,
@@ -34,7 +34,7 @@ struct Cli {
 
 #[derive(Args)]
 struct Global {
-    /// Data directory (default: LOGA_DATA_DIR, then the per-user data directory)
+    /// Data directory (default: LOGLOUPE_DATA_DIR, then the per-user data directory)
     #[arg(long, global = true, value_name = "DIR")]
     data_dir: Option<PathBuf>,
     /// DuckDB memory limit, for example 512MB or 2GB (default 512MB)
@@ -177,7 +177,7 @@ enum GranularityArg {
 #[derive(Args)]
 struct ReportArgs {
     slug: String,
-    /// Report name (see `loga reports`)
+    /// Report name (see `logloupe reports`)
     name: String,
     /// First day, in the site's time zone (default: earliest data)
     #[arg(long, value_name = "DATE")]
@@ -188,6 +188,9 @@ struct ReportArgs {
     /// Status class: 2, 3, 4 or 5
     #[arg(long, value_name = "CLASS")]
     status: Option<u8>,
+    /// One exact response code, for example 504
+    #[arg(long = "status-code", value_name = "CODE")]
+    status_code: Option<u16>,
     #[arg(long = "path-prefix", value_name = "PREFIX")]
     path_prefix: Option<String>,
     /// An address, an IPv4 /24 or an IPv6 /48
@@ -429,7 +432,7 @@ fn print_stats_list(all: &[Json]) {
         })
         .collect();
     if rows.is_empty() {
-        println!("No sites yet. Add one with: loga site add <slug> --host example.com");
+        println!("No sites yet. Add one with: logloupe site add <slug> --host example.com");
         return;
     }
     print_table(
@@ -650,6 +653,7 @@ fn run_report(app: &App, args: ReportArgs) -> Result<()> {
         to: args.to,
         filters: Filters {
             status_class: args.status,
+            status: args.status_code,
             path_prefix: args.path_prefix,
             ip: args.ip,
             source_type: args.source_type,
@@ -761,7 +765,7 @@ fn list_reports(app: &App) -> Result<()> {
             .collect();
         app.emit(&json!({
             "reports": reports,
-            "parameters": ["from", "to", "status", "path-prefix", "ip", "source", "country", "asn",
+            "parameters": ["from", "to", "status", "status-code", "path-prefix", "ip", "source", "country", "asn",
                            "bot", "verified", "referrer", "user-agent", "granularity", "table", "limit", "offset", "format"],
         }));
         return Ok(());
@@ -778,7 +782,7 @@ fn list_reports(app: &App) -> Result<()> {
         .collect();
     print_table(&["report", "tables", "description"], &rows);
     println!(
-        "\nEvery report takes: --from DATE --to DATE --status CLASS --path-prefix PREFIX --ip IP \
+        "\nEvery report takes: --from DATE --to DATE --status CLASS --status-code CODE --path-prefix PREFIX --ip IP \
          --source TYPE --country ISO --asn N --bot NAME --verified STATE --referrer TEXT --user-agent TEXT --table NAME --limit N \
          --offset N --format json|table|csv"
     );
@@ -855,7 +859,7 @@ fn db(app: &App, command: DbCommand) -> Result<()> {
                 app.emit(&json!({ "site": slug, "rows_deleted": deleted, "before": before, "rollups_deleted": rollups }));
             } else {
                 println!(
-                    "Deleted {} rows before {before}{}. Run `loga db compact {slug}` to reclaim the space.",
+                    "Deleted {} rows before {before}{}. Run `logloupe db compact {slug}` to reclaim the space.",
                     number(deleted),
                     if rollups {
                         " and their rollups"
@@ -1014,7 +1018,7 @@ fn reenrich(app: &App, slug: &str) -> Result<()> {
             if result.addresses_located > 0 {
                 format!("Located {} addresses.", number(result.addresses_located))
             } else {
-                "No geo database installed (run `loga geo update`).".to_owned()
+                "No geo database installed (run `logloupe geo update`).".to_owned()
             }
         );
     }
@@ -1023,7 +1027,7 @@ fn reenrich(app: &App, slug: &str) -> Result<()> {
 
 fn geo(app: &App, command: GeoCommand) -> Result<()> {
     let status = match command {
-        GeoCommand::Status => loga_core::geo::status(app.dir.root()),
+        GeoCommand::Status => logloupe_core::geo::status(app.dir.root()),
         GeoCommand::Update => {
             if app.offline {
                 return Err(Error::Invalid(
@@ -1031,7 +1035,7 @@ fn geo(app: &App, command: GeoCommand) -> Result<()> {
                 ));
             }
             app.note("Downloading DB-IP Lite country and ASN databases...");
-            loga_core::geo::update_dbip(app.dir.root())?
+            logloupe_core::geo::update_dbip(app.dir.root())?
         }
     };
     if app.json {
@@ -1067,9 +1071,9 @@ fn geo(app: &App, command: GeoCommand) -> Result<()> {
     }
     if status.files.iter().any(|f| !f.present) {
         println!(
-            "\nRun `loga geo update` to download DB-IP Lite, or put your own GeoLite2-Country.mmdb and \
+            "\nRun `logloupe geo update` to download DB-IP Lite, or put your own GeoLite2-Country.mmdb and \
              GeoLite2-ASN.mmdb in {}.",
-            loga_core::geo::geo_dir(app.dir.root()).display()
+            logloupe_core::geo::geo_dir(app.dir.root()).display()
         );
     }
     Ok(())

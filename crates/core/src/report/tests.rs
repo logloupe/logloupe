@@ -458,3 +458,52 @@ fn csv_export_quotes_and_defuses_formulas() {
         "path,hits\r\n/plain,3\r\n\"/a,b \"\"c\"\"\",-2\r\n\"'=HYPERLINK(\"\"http://evil.example\"\")\",1\r\n'@SUM(1+1),\r\n"
     );
 }
+
+#[test]
+fn status_codes() {
+    let (_tmp, store) = fixture("report-status");
+    let result = run(&store, "status-codes", &ReportParams::default()).unwrap();
+    let by_status = rows(&result, "by_status");
+    assert_eq!(by_status.len(), 2);
+    assert_eq!(
+        (
+            &by_status[0]["status"],
+            &by_status[0]["hits"],
+            &by_status[0]["meaning"]
+        ),
+        (&json!(200), &json!(8), &json!("OK"))
+    );
+    assert_eq!(
+        (&by_status[1]["status"], &by_status[1]["hits"]),
+        (&json!(404), &json!(1))
+    );
+    assert_eq!(
+        table(&result, "by_status").totals,
+        json!({"hits": 9, "errors": 1, "server_errors": 0})
+            .as_object()
+            .unwrap()
+            .clone()
+    );
+    assert_eq!(
+        rows(&result, "error_paths"),
+        vec![
+            json!({"path": "/missing/", "status": 404, "hits": 1, "ips": 1,
+                    "first_seen": "2026-11-15 09:00:00", "last_seen": "2026-11-15 09:00:00"})
+        ]
+    );
+    assert_eq!(rows(&result, "error_ips")[0]["ip"], "203.0.113.6");
+    // One bucket per day and code: 200 on the 14th, 404 on the 15th.
+    assert_eq!(rows(&result, "series").len(), 2);
+
+    let exact = ReportParams {
+        filters: Filters {
+            status: Some(404),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    assert_eq!(
+        rows(&run(&store, "overview", &exact).unwrap(), "totals")[0]["requests"],
+        1
+    );
+}

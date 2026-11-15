@@ -250,3 +250,121 @@ pub fn referrers(store: &Store, params: &ReportParams) -> Result<ReportResult> {
         ],
     )
 }
+
+/// What each response code means, for the codes worth explaining.
+const STATUS_MEANING: &str = "CASE r.status
+    WHEN 200 THEN 'OK' WHEN 204 THEN 'No content' WHEN 206 THEN 'Partial content'
+    WHEN 301 THEN 'Moved permanently' WHEN 302 THEN 'Found (temporary redirect)'
+    WHEN 304 THEN 'Not modified' WHEN 307 THEN 'Temporary redirect' WHEN 308 THEN 'Permanent redirect'
+    WHEN 400 THEN 'Bad request' WHEN 401 THEN 'Unauthorised' WHEN 403 THEN 'Forbidden'
+    WHEN 404 THEN 'Not found' WHEN 405 THEN 'Method not allowed' WHEN 408 THEN 'Request timeout'
+    WHEN 410 THEN 'Gone' WHEN 429 THEN 'Too many requests'
+    WHEN 444 THEN 'Connection closed by nginx without a response'
+    WHEN 499 THEN 'Client gave up before the response (nginx)'
+    WHEN 500 THEN 'Internal server error' WHEN 502 THEN 'Bad gateway'
+    WHEN 503 THEN 'Service unavailable' WHEN 504 THEN 'Gateway timeout'
+    ELSE '' END";
+
+/// Response codes: how many of each, how they moved over time, and what was
+/// behind the errors. 499, 502, 503 and 504 together are the server-stress signal.
+pub fn status_codes(store: &Store, params: &ReportParams) -> Result<ReportResult> {
+    let mut scope = Scope::new(store, params)?;
+    scope.raw_only();
+    let filter = scope.filter.clone();
+    let errors = format!("{filter} AND r.status >= 400");
+    let (bucket, bucket_type) = match params.granularity {
+        Some(super::Granularity::Hour) => ("date_trunc('hour', r.ts_local)", Datetime),
+        _ => ("CAST(r.ts_local AS DATE)", super::ColumnType::Date),
+    };
+    scope.notes.push(
+        "499 means the client disconnected before the server answered, and 502, 503 and 504 mean the \
+         server or the application behind it could not answer in time. A rise in those together is the \
+         sign of an overloaded server. 444 is nginx deliberately closing the connection, usually from a \
+         blocking rule."
+            .to_owned(),
+    );
+    scope.finish(
+        "status-codes",
+        vec![
+            TableSpec {
+                name: "by_status",
+                columns: vec![
+                    col("status", Integer),
+                    col("meaning", Text),
+                    col("hits", Integer),
+                    col("ips", Integer),
+                    col("urls", Integer),
+                    col("bytes", Integer),
+                    col("first_seen", Datetime),
+                    col("last_seen", Datetime),
+                ],
+                sql: format!(
+                    "SELECT r.status, {STATUS_MEANING} AS meaning, count(*) AS hits,
+                            count(DISTINCT r.ip) AS ips,
+                            count(DISTINCT coalesce(r.path, r.raw_request)) AS urls,
+                            coalesce(sum(r.bytes), 0) AS bytes, {SEEN}
+                     FROM requests r WHERE {filter} GROUP BY r.status"
+                ),
+                order_by: "hits DESC, status",
+                totals: Some((
+                    vec![col("hits", Integer), col("errors", Integer), col("server_errors", Integer)],
+                    format!(
+                        "SELECT count(*) AS hits, count(*) FILTER (WHERE r.status >= 400) AS errors,
+                                count(*) FILTER (WHERE r.status >= 500) AS server_errors
+                         FROM requests r WHERE {filter}"
+                    ),
+                )),
+            },
+            TableSpec {
+                name: "series",
+                columns: vec![col("bucket", bucket_type), col("status", Text), col("hits", Integer)],
+                sql: format!(
+                    "SELECT {bucket} AS bucket, CAST(r.status AS VARCHAR) AS status, count(*) AS hits
+                     FROM requests r WHERE {filter} GROUP BY 1, 2"
+                ),
+                order_by: "bucket, hits DESC, status",
+                totals: None,
+            },
+            TableSpec {
+                name: "error_paths",
+                columns: vec![
+                    col("path", Text),
+                    col("status", Integer),
+                    col("hits", Integer),
+                    col("ips", Integer),
+                    col("first_seen", Datetime),
+                    col("last_seen", Datetime),
+                ],
+                sql: format!(
+                    "SELECT coalesce(r.path, r.raw_request) AS path, r.status, count(*) AS hits,
+                            count(DISTINCT r.ip) AS ips, {SEEN}
+                     FROM requests r WHERE {errors} GROUP BY 1, 2"
+                ),
+                order_by: "hits DESC, path, status",
+                totals: None,
+            },
+            TableSpec {
+                name: "error_ips",
+                columns: vec![
+                    col("ip", Text),
+                    col("status", Integer),
+                    col("hits", Integer),
+                    col("urls", Integer),
+                    col("country", Text),
+                    col("asn_org", Text),
+                    col("agent_type", Text),
+                    col("agent", Text),
+                ],
+                sql: format!(
+                    "SELECT r.ip, r.status, count(*) AS hits,
+                            count(DISTINCT coalesce(r.path, r.raw_request)) AS urls,
+                            any_value(r.country) AS country, any_value(r.asn_org) AS asn_org,
+                            mode(u.category) AS agent_type, mode(u.family) AS agent
+                     FROM {ROWS} WHERE {errors} GROUP BY 1, 2"
+                ),
+                order_by: "hits DESC, ip, status",
+                totals: None,
+            },
+        ],
+    )
+}

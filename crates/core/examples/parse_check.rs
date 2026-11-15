@@ -2,13 +2,13 @@
 //! A quick check of the parser against real logs, and a rough parse-only
 //! throughput figure.
 //!
-//! `cargo run --release -p loga-core --example parse_check -- <file>...`
+//! `cargo run --release -p logloupe-core --example parse_check -- <file>...`
 
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::time::Instant;
 
-use loga_core::format::{Request, combined::parse_combined};
+use logloupe_core::format::{Request, combined::parse_combined};
 
 fn main() -> std::io::Result<()> {
     for path in std::env::args().skip(1) {

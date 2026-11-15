@@ -1,6 +1,6 @@
 [package]
-name = "loga-core"
-description = "Log analyser engine: parse, enrich, store, report."
+name = "logloupe-core"
+description = "Logloupe engine: parse, enrich, store, report."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

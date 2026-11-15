@@ -1,6 +1,6 @@
 //! Synthetic access log generator for benchmarks and tests.
 //!
-//! `cargo run --release -p loga-core --example gen_log -- --size 1GB --out big.log`
+//! `cargo run --release -p logloupe-core --example gen_log -- --size 1GB --out big.log`
 //!
 //! Options: `--size <N>[KB|MB|GB]` or `--lines <N>`, `--out <file>` (default
 //! stdout), `--days <N>` (default 1), `--start <YYYY-MM-DD>` (default

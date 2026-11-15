@@ -92,15 +92,12 @@ pub struct DataDir {
 }
 
 impl DataDir {
-    /// Resolution order: the explicit path, `LOGA_DATA_DIR`, then the
+    /// Resolution order: the explicit path, `LOGLOUPE_DATA_DIR`, then the
     /// OS-appropriate per-user data directory.
     pub fn resolve(explicit: Option<PathBuf>) -> Result<Self> {
         let root = explicit
-            .or_else(|| std::env::var_os("LOGA_DATA_DIR").map(PathBuf::from))
-            .or_else(|| {
-                directories::ProjectDirs::from("", "", "log-analyser")
-                    .map(|d| d.data_dir().to_path_buf())
-            })
+            .or_else(|| std::env::var_os("LOGLOUPE_DATA_DIR").map(PathBuf::from))
+            .or_else(default_data_dir)
             .ok_or_else(|| {
                 Error::invalid("could not work out a data directory; pass --data-dir")
             })?;
@@ -186,6 +183,30 @@ impl DataDir {
         let _ = std::fs::remove_file(wal_path(&db));
         Ok(())
     }
+}
+
+/// The per-user data directory. Data stored under the project's earlier
+/// working name is moved across the first time, or used in place if it
+/// cannot be moved.
+fn default_data_dir() -> Option<PathBuf> {
+    let current = directories::ProjectDirs::from("", "", "logloupe")?
+        .data_dir()
+        .to_path_buf();
+    if current.exists() {
+        return Some(current);
+    }
+    let legacy =
+        directories::ProjectDirs::from("", "", "log-analyser").map(|d| d.data_dir().to_path_buf());
+    if let Some(legacy) = legacy.filter(|l| l.is_dir()) {
+        let moved = current
+            .parent()
+            .is_some_and(|parent| std::fs::create_dir_all(parent).is_ok())
+            && std::fs::rename(&legacy, &current).is_ok();
+        if !moved {
+            return Some(legacy);
+        }
+    }
+    Some(current)
 }
 
 fn wal_path(db: &Path) -> PathBuf {
@@ -474,7 +495,7 @@ pub(crate) mod testing {
     impl TempDataDir {
         pub fn new(name: &str) -> Self {
             let root =
-                std::env::temp_dir().join(format!("loga-test-{}-{name}", std::process::id()));
+                std::env::temp_dir().join(format!("logloupe-test-{}-{name}", std::process::id()));
             let _ = std::fs::remove_dir_all(&root);
             TempDataDir(DataDir::at(root))
         }

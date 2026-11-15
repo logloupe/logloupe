@@ -102,6 +102,7 @@ export interface ReportResult {
 
 export interface Filters {
   status_class?: number | null
+  status?: number | null
   path_prefix?: string | null
   ip?: string | null
   source_type?: string | null

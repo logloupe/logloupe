@@ -34,7 +34,7 @@ let run = 0
 
 const isOverview = computed(() => props.report === 'overview')
 // Reports with a time series load it whole, so the chart is not one page of it.
-const hasSeries = computed(() => props.report === 'overview' || props.report === 'bots')
+const hasSeries = computed(() => ['overview', 'bots', 'status-codes'].includes(props.report))
 
 /** What to plot: the table and which of its columns become lines. */
 const chart = computed<{ table: ReportTable; keys: string[] } | null>(() => {

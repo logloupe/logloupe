@@ -1,4 +1,4 @@
-//! Log analyser engine.
+//! Logloupe engine.
 //!
 //! Everything lives here: parsing, enrichment, storage and reports. This crate
 //! never prints, never reads CLI arguments and never assumes a GUI.

@@ -2392,23 +2392,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5d15f86d12da44cd8d4ec3c73984537eb7f4cadcb9776a575a0a8a05ca11005c"
 
 [[package]]
-name = "loga"
+name = "logloupe"
 version = "0.1.0"
 dependencies = [
  "chrono",
  "clap",
  "glob",
- "loga-core",
+ "logloupe-core",
  "serde",
  "serde_json",
 ]
 
 [[package]]
-name = "loga-app"
+name = "logloupe-app"
 version = "0.1.0"
 dependencies = [
  "chrono",
- "loga-core",
+ "logloupe-core",
  "serde",
  "serde_json",
  "tauri",
@@ -2417,7 +2417,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "loga-core"
+name = "logloupe-core"
 version = "0.1.0"
 dependencies = [
  "blake3",

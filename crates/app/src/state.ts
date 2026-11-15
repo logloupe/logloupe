@@ -7,11 +7,12 @@ import { api, type Filters, type ReportParams, type SiteEntry } from './api'
 export const state = reactive({
   sites: [] as SiteEntry[],
   sitesLoaded: false,
-  slug: localStorage.getItem('loga.site') ?? '',
+  slug: localStorage.getItem('logloupe.site') ?? '',
   from: '',
   to: '',
   bot: '',
   statusClass: '',
+  statusCode: '',
   pathPrefix: '',
   ip: '',
   source: '',
@@ -37,7 +38,7 @@ export async function loadSites(): Promise<void> {
 
 export function selectSite(slug: string): void {
   state.slug = slug
-  localStorage.setItem('loga.site', slug)
+  localStorage.setItem('logloupe.site', slug)
   state.revision++
 }
 
@@ -50,6 +51,7 @@ export function clearFilters(): void {
   state.to = ''
   state.bot = ''
   state.statusClass = ''
+  state.statusCode = ''
   state.pathPrefix = ''
   state.ip = ''
   state.source = ''
@@ -67,6 +69,7 @@ export const hasFilters = computed(
       state.to ||
       state.bot ||
       state.statusClass ||
+      state.statusCode ||
       state.pathPrefix ||
       state.ip ||
       state.source ||
@@ -82,6 +85,7 @@ export function reportParams(extra: Partial<ReportParams> = {}): ReportParams {
   const filters: Filters = {}
   if (state.bot.trim()) filters.bot = state.bot.trim()
   if (state.statusClass) filters.status_class = Number(state.statusClass)
+  if (state.statusCode) filters.status = Number(state.statusCode)
   if (state.pathPrefix.trim()) filters.path_prefix = state.pathPrefix.trim()
   if (state.ip.trim()) filters.ip = state.ip.trim()
   if (state.source) filters.source_type = state.source
@@ -112,6 +116,7 @@ const cellFilters: Record<string, (value: string) => void> = {
   bot: (v) => (state.bot = v),
   claimed_bot: (v) => (state.bot = v),
   source_type: (v) => (state.source = v),
+  status: (v) => (state.statusCode = v),
   country: (v) => (state.country = v === '(unknown)' ? '' : v),
   asn: (v) => (state.asn = v),
 }
@@ -131,6 +136,7 @@ export type FilterKey =
   | 'to'
   | 'bot'
   | 'statusClass'
+  | 'statusCode'
   | 'pathPrefix'
   | 'ip'
   | 'source'
@@ -157,6 +163,7 @@ export const activeFilters = computed<ActiveFilter[]>(() => {
   if (state.from) list.push({ key: 'from', label: `From ${state.from}` })
   if (state.to) list.push({ key: 'to', label: `To ${state.to}` })
   if (state.statusClass) list.push({ key: 'statusClass', label: `Status ${state.statusClass}xx` })
+  if (state.statusCode) list.push({ key: 'statusCode', label: `Status is ${state.statusCode}` })
   if (state.source) list.push({ key: 'source', label: `Source is ${state.source}` })
   if (state.pathPrefix) list.push({ key: 'pathPrefix', label: `Path starts with ${state.pathPrefix}` })
   if (state.ip) list.push({ key: 'ip', label: `IP ${state.ip}` })

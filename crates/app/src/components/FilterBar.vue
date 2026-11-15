@@ -9,7 +9,16 @@ const open = ref(false)
 
 // Text boxes edit a draft. Nothing is filtered until it is applied, so the
 // strip below never shows a filter that is not in force.
-const draft = reactive({ bot: '', pathPrefix: '', ip: '', referrer: '', userAgent: '', country: '', asn: '' })
+const draft = reactive({
+  statusCode: '',
+  bot: '',
+  pathPrefix: '',
+  ip: '',
+  referrer: '',
+  userAgent: '',
+  country: '',
+  asn: '',
+})
 type DraftKey = keyof typeof draft
 const draftKeys = Object.keys(draft) as DraftKey[]
 
@@ -22,6 +31,7 @@ watch(
 function apply() {
   draftKeys.forEach((key) => (state[key] = draft[key].trim()))
   state.country = state.country.toUpperCase()
+  state.statusCode = /^[1-5]\d\d$/.test(state.statusCode) ? state.statusCode : ''
   state.asn = state.asn.replace(/^as/i, '').replace(/\D/g, '')
   refreshReports()
 }
@@ -92,6 +102,9 @@ const hiddenCount = computed(() => activeFilters.value.filter((f) => f.key !== '
     >
       <UFormField label="Status" size="sm">
         <USelect v-model="statusModel" :items="statusItems" size="sm" class="w-28" />
+      </UFormField>
+      <UFormField label="Exact code" size="sm">
+        <UInput v-model="draft.statusCode" placeholder="504" size="sm" class="w-20" inputmode="numeric" />
       </UFormField>
       <UFormField label="Source" size="sm">
         <USelect v-model="sourceModel" :items="sourceItems" size="sm" class="w-32" />

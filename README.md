@@ -1,4 +1,4 @@
-# Log Analyser (`loga`)
+# Logloupe (`logloupe`)
 
 Analyses web server access logs: traffic sources, bots, abuse and crawl problems. One Rust engine (`crates/core`) with a command-line front end (`crates/cli`); a desktop app comes later. The full design is in [spec.md](spec.md).
 
@@ -7,15 +7,15 @@ Status: **Phase 1 in progress.** Working today: site management, ingest of plain
 ## Quick start
 
 ```
-loga site add example --host example.com --host www.example.com --timezone Europe/London
-loga ingest example /var/log/nginx/access.log*
-loga reports
-loga report example sources
-loga report example overview --from 2026-11-01 --to 2026-11-14 --format json
-loga db stats
+logloupe site add example --host example.com --host www.example.com --timezone Europe/London
+logloupe ingest example /var/log/nginx/access.log*
+logloupe reports
+logloupe report example sources
+logloupe report example overview --from 2026-11-01 --to 2026-11-14 --format json
+logloupe db stats
 ```
 
-- Data lives in the per-user data directory, or wherever `--data-dir` / `LOGA_DATA_DIR` points. Each site is one DuckDB file under `sites/`.
+- Data lives in the per-user data directory, or wherever `--data-dir` / `LOGLOUPE_DATA_DIR` points. Each site is one DuckDB file under `sites/`.
 - `report --format json` writes exactly one JSON document to stdout (the envelope in spec 7.2). Other commands take `--json`.
 - Ingesting a file twice is a no-op. A log that has grown since last time only adds its new lines.
 - Exit codes: 0 success, 1 failure, 2 usage error, 75 site in use by another process (retry, or pass `--wait-lock <seconds>`).
@@ -29,20 +29,20 @@ cd crates/app
 pnpm install
 pnpm build                                  # builds the frontend into dist/
 cd ../..
-cargo build --release --workspace           # target/release/loga-app(.exe)
+cargo build --release --workspace           # target/release/logloupe-app(.exe)
 ```
 
-Run `target/release/loga-app`. It uses the same data directory as the CLI, so sites created in one show up in the other (set `LOGA_DATA_DIR` to point it elsewhere). Only one process can write to a site at a time.
+Run `target/release/logloupe-app`. It uses the same data directory as the CLI, so sites created in one show up in the other (set `LOGLOUPE_DATA_DIR` to point it elsewhere). Only one process can write to a site at a time.
 
 For frontend work, `pnpm dev` serves the UI at http://localhost:1420 with sample data in a plain browser, and `pnpm tauri dev -- --no-default-features` runs the real app against the dev server.
 
 ## Bot verification
 
 ```
-loga ranges update          # fetch every operator's published IP lists
-loga ranges status
-loga reenrich example       # re-check stored rows against the current lists
-loga report example fake-bots
+logloupe ranges update          # fetch every operator's published IP lists
+logloupe ranges status
+logloupe reenrich example       # re-check stored rows against the current lists
+logloupe report example fake-bots
 ```
 
 Ingest refreshes lists older than a day unless `--offline` is given. The bot list and its sources are in `crates/core/data/bots.toml`; a copy at `<data-dir>/bots.toml` overrides it.
@@ -50,10 +50,10 @@ Ingest refreshes lists older than a day unless `--offline` is given. The bot lis
 ## Country and network (ASN) lookup
 
 ```
-loga geo update             # download the free DB-IP Lite country and ASN databases (about 10 MB)
-loga geo status
-loga reenrich example       # fill in country and network for rows already ingested
-loga report example top-ips --table by_asn
+logloupe geo update             # download the free DB-IP Lite country and ASN databases (about 10 MB)
+logloupe geo status
+logloupe reenrich example       # fill in country and network for rows already ingested
+logloupe report example top-ips --table by_asn
 ```
 
 The app has the same under Settings. To use MaxMind instead, put your own `GeoLite2-Country.mmdb` and `GeoLite2-ASN.mmdb` in `<data-dir>/geo/`; they take priority over the DB-IP files. With no database installed, ingest still works and those columns stay empty.
@@ -74,7 +74,7 @@ IP geolocation by [DB-IP](https://db-ip.com), used under its Creative Commons At
 Prerequisites: Rust stable, and a C++ compiler for the bundled DuckDB (on Windows, Visual Studio Build Tools with the "Desktop development with C++" workload).
 
 ```
-cargo build --release -p loga        # binary at target/release/loga
+cargo build --release -p logloupe        # binary at target/release/logloupe
 cargo test --workspace --release
 cargo clippy --workspace --all-targets --release -- -D warnings
 ```
@@ -85,10 +85,10 @@ The first build compiles DuckDB from source and takes 15–20 minutes. Use `--re
 
 ```
 # Parse-only check of a plain-text log with the combined parser
-cargo run --release -p loga-core --example parse_check -- access.log
+cargo run --release -p logloupe-core --example parse_check -- access.log
 
 # Deterministic synthetic log: browser/bot/tool mix, a fake Googlebot, one burst
-cargo run --release -p loga-core --example gen_log -- --size 1GB --days 7 --out big.log
+cargo run --release -p logloupe-core --example gen_log -- --size 1GB --days 7 --out big.log
 ```
 
 Real logs used for local checking go in `samples/`, which is git-ignored. Never commit client logs.

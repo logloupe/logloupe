@@ -9,7 +9,7 @@ use crate::store::Store;
 
 const VERIFY_NOTE: &str = "A bot is verified when its address is inside the operator's published IP ranges, \
      fake when the operator publishes ranges and the address is outside them, and unverifiable when \
-     the operator publishes no usable list or no ranges are cached (run `loga ranges update`).";
+     the operator publishes no usable list or no ranges are cached (run `logloupe ranges update`).";
 
 const SEEN: &str = "strftime(min(r.ts_local), '%Y-%m-%d %H:%M:%S') AS first_seen,
                     strftime(max(r.ts_local), '%Y-%m-%d %H:%M:%S') AS last_seen";

@@ -1,4 +1,4 @@
-//! The desktop app's Rust side: thin Tauri commands over `loga-core`. Every
+//! The desktop app's Rust side: thin Tauri commands over `logloupe-core`. Every
 //! command calls the same engine function as its CLI counterpart and returns
 //! the same serialisable struct.
 
@@ -9,13 +9,13 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use chrono::NaiveDate;
-use loga_core::bots::{Registry, ranges};
-use loga_core::ingest::{self, FileReport, IngestOptions};
-use loga_core::maintain::{
+use logloupe_core::bots::{Registry, ranges};
+use logloupe_core::ingest::{self, FileReport, IngestOptions};
+use logloupe_core::maintain::{
     self, CompactResult, IngestedFile, ReenrichResult, SettingsChange, SiteEntry, SiteStats,
 };
-use loga_core::report::{self, ReportParams, ReportResult};
-use loga_core::store::{DataDir, Mode, OpenOptions, SettingsPatch, SiteSettings, Store};
+use logloupe_core::report::{self, ReportParams, ReportResult};
+use logloupe_core::store::{DataDir, Mode, OpenOptions, SettingsPatch, SiteSettings, Store};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
@@ -33,8 +33,8 @@ struct CommandError {
     message: String,
 }
 
-impl From<loga_core::Error> for CommandError {
-    fn from(error: loga_core::Error) -> Self {
+impl From<logloupe_core::Error> for CommandError {
+    fn from(error: logloupe_core::Error) -> Self {
         CommandError {
             code: error.code().to_owned(),
             message: error.to_string(),
@@ -47,7 +47,7 @@ type CommandResult<T> = Result<T, CommandError>;
 /// Runs engine work off the UI thread.
 async fn blocking<T, F>(work: F) -> CommandResult<T>
 where
-    F: FnOnce() -> loga_core::Result<T> + Send + 'static,
+    F: FnOnce() -> logloupe_core::Result<T> + Send + 'static,
     T: Send + 'static,
 {
     tauri::async_runtime::spawn_blocking(work)
@@ -250,7 +250,7 @@ async fn export_csv(
             .extension()
             .is_some_and(|e| e.eq_ignore_ascii_case("csv"))
         {
-            return Err(loga_core::Error::Invalid(
+            return Err(logloupe_core::Error::Invalid(
                 "exports must be saved as a .csv file".into(),
             ));
         }
@@ -324,15 +324,15 @@ async fn ranges_update(state: State<'_, AppState>) -> CommandResult<Vec<ranges::
 }
 
 #[tauri::command]
-async fn geo_status(state: State<'_, AppState>) -> CommandResult<loga_core::geo::GeoStatus> {
+async fn geo_status(state: State<'_, AppState>) -> CommandResult<logloupe_core::geo::GeoStatus> {
     let dir = state.dir.clone();
-    blocking(move || Ok(loga_core::geo::status(dir.root()))).await
+    blocking(move || Ok(logloupe_core::geo::status(dir.root()))).await
 }
 
 #[tauri::command]
-async fn geo_update(state: State<'_, AppState>) -> CommandResult<loga_core::geo::GeoStatus> {
+async fn geo_update(state: State<'_, AppState>) -> CommandResult<logloupe_core::geo::GeoStatus> {
     let dir = state.dir.clone();
-    blocking(move || loga_core::geo::update_dbip(dir.root())).await
+    blocking(move || logloupe_core::geo::update_dbip(dir.root())).await
 }
 
 fn main() {

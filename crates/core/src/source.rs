@@ -71,7 +71,8 @@ mod tests {
     use std::io::Write;
 
     fn temp_file(name: &str, bytes: &[u8]) -> std::path::PathBuf {
-        let path = std::env::temp_dir().join(format!("loga-source-{}-{name}", std::process::id()));
+        let path =
+            std::env::temp_dir().join(format!("logloupe-source-{}-{name}", std::process::id()));
         std::fs::write(&path, bytes).unwrap();
         path
     }

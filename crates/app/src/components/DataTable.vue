@@ -16,7 +16,7 @@ function display(column: Column, value: Cell): string {
   if (typeof value === 'number') {
     if (column.key === 'bytes') return formatBytes(value)
     // Identifiers are not quantities: no thousands separators.
-    if (column.key === 'asn') return String(value)
+    if (column.key === 'asn' || column.key === 'status') return String(value)
     return formatNumber(value)
   }
   return String(value)

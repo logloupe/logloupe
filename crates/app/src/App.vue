@@ -42,6 +42,7 @@ const groups: { title: string; items: NavItem[] }[] = [
   {
     title: 'Abuse',
     items: [
+      { id: 'status-codes', label: 'Status codes', icon: 'i-lucide-activity', description: 'Response codes over time, per code, and the URLs and addresses behind the errors.' },
       { id: 'top-ips', label: 'Top IPs', icon: 'i-lucide-flame', description: 'The busiest addresses, networks, user agents and paths, with peak requests per minute.' },
       { id: 'referrers', label: 'Referrers', icon: 'i-lucide-link', description: 'Referrers exactly as sent, including the site\'s own pages, with who sent them.' },
     ],
