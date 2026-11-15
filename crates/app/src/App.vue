@@ -44,6 +44,8 @@ const groups: { title: string; items: NavItem[] }[] = [
     items: [
       { id: 'status-codes', label: 'Status codes', icon: 'i-lucide-activity', description: 'Response codes over time, per code, and the URLs and addresses behind the errors.' },
       { id: 'top-ips', label: 'Top IPs', icon: 'i-lucide-flame', description: 'The busiest addresses, networks, user agents and paths, with peak requests per minute.' },
+      { id: 'queries', label: 'Query strings', icon: 'i-lucide-braces', description: 'Query strings grouped by shape, parameter and path. A crawler stuck in a loop shows up here.' },
+      { id: 'requests', label: 'Requests', icon: 'i-lucide-list', description: 'The individual requests behind the current filters, newest first.' },
       { id: 'referrers', label: 'Referrers', icon: 'i-lucide-link', description: 'Referrers exactly as sent, including the site\'s own pages, with who sent them.' },
     ],
   },
@@ -58,18 +60,17 @@ const groups: { title: string; items: NavItem[] }[] = [
   },
 ]
 
-const view = ref('sites')
 const startError = ref('')
 
-const active = computed(() => groups.flatMap((g) => g.items).find((i) => i.id === view.value))
+const active = computed(() => groups.flatMap((g) => g.items).find((i) => i.id === state.view))
 const isReport = computed(() => !!active.value?.description)
 const siteItems = computed(() => state.sites.map((s) => ({ label: s.slug, value: s.slug })))
 
 onMounted(async () => {
   try {
     await loadSites()
-    if (currentSite.value?.stats?.rows) view.value = 'overview'
-    else if (state.sites.length) view.value = 'ingest'
+    if (currentSite.value?.stats?.rows) state.view = 'overview'
+    else if (state.sites.length) state.view = 'ingest'
   } catch (e) {
     startError.value = errorMessage(e)
   }
@@ -89,7 +90,7 @@ onMounted(async () => {
             class="mt-1 w-full"
             @update:model-value="(slug: string) => selectSite(slug)"
           />
-          <UButton v-else class="mt-1 w-full" label="Add a site" icon="i-lucide-plus" variant="outline" color="neutral" @click="view = 'sites'" />
+          <UButton v-else class="mt-1 w-full" label="Add a site" icon="i-lucide-plus" variant="outline" color="neutral" @click="state.view = 'sites'" />
         </div>
         <nav class="flex-1 overflow-y-auto p-2">
           <div v-for="group in groups" :key="group.title" class="mb-3">
@@ -99,9 +100,9 @@ onMounted(async () => {
               :key="item.id"
               type="button"
               class="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors focus-visible:outline-2 focus-visible:outline-primary"
-              :class="view === item.id ? 'bg-primary/10 font-medium text-primary' : 'text-default hover:bg-elevated'"
-              :aria-current="view === item.id ? 'page' : undefined"
-              @click="view = item.id"
+              :class="state.view === item.id ? 'bg-primary/10 font-medium text-primary' : 'text-default hover:bg-elevated'"
+              :aria-current="state.view === item.id ? 'page' : undefined"
+              @click="state.view = item.id"
             >
               <UIcon :name="item.icon" class="size-4 shrink-0" />
               {{ item.label }}
@@ -136,10 +137,10 @@ onMounted(async () => {
             />
             <ReportView v-else :key="active.id" :report="active.id" :title="active.label" :description="active.description ?? ''" />
           </template>
-          <IngestView v-else-if="view === 'ingest'" />
-          <StorageView v-else-if="view === 'storage'" />
-          <SettingsView v-else-if="view === 'settings'" />
-          <SitesView v-else @open="(target: string) => (view = target)" />
+          <IngestView v-else-if="state.view === 'ingest'" />
+          <StorageView v-else-if="state.view === 'storage'" />
+          <SettingsView v-else-if="state.view === 'settings'" />
+          <SitesView v-else @open="(target: string) => (state.view = target)" />
         </main>
       </div>
     </div>

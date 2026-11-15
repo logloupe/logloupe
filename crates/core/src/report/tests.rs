@@ -507,3 +507,99 @@ fn status_codes() {
         1
     );
 }
+
+#[test]
+fn queries_and_requests() {
+    let (_tmp, store) = fixture("report-queries");
+    let result = run(&store, "queries", &ReportParams::default()).unwrap();
+    let shapes = rows(&result, "by_shape");
+    assert_eq!(shapes.len(), 2);
+    assert!(shapes.iter().any(|s| s["path"] == "/offer/"
+        && s["query_shape"] == "utm_source=…&utm_medium=…&utm_campaign=…&gclid=…"
+        && s["hits"] == 1));
+    let params = rows(&result, "by_param");
+    let utm_source = params
+        .iter()
+        .find(|p| p["parameter"] == "utm_source")
+        .unwrap();
+    assert_eq!(
+        (
+            &utm_source["hits"],
+            &utm_source["paths"],
+            &utm_source["longest_value"]
+        ),
+        (&json!(2), &json!(2), &json!(11))
+    );
+    assert_eq!(rows(&result, "by_path").len(), 2);
+
+    let result = run(&store, "requests", &ReportParams::default()).unwrap();
+    let all = rows(&result, "requests");
+    assert_eq!(all.len(), 9);
+    assert_eq!(
+        (&all[0]["time"], &all[0]["path"], &all[0]["status"]),
+        (
+            &json!("2026-11-15 09:00:00"),
+            &json!("/missing/"),
+            &json!(404)
+        )
+    );
+    assert_eq!(table(&result, "requests").totals["requests"], 9);
+    let one_ip = ReportParams {
+        filters: Filters {
+            ip: Some("203.0.113.1".into()),
+            ..Default::default()
+        },
+        limit: 2,
+        ..Default::default()
+    };
+    let t = &run(&store, "requests", &one_ip).unwrap().tables[0];
+    assert_eq!((t.rows.len(), t.total_rows), (2, 4));
+}
+
+#[test]
+fn block_list_from_filters() {
+    use super::blocklist::{By, Style, collect, format};
+    let (_tmp, store) = fixture("report-blocklist");
+    let params = ReportParams::default();
+    assert_eq!(
+        collect(&store, &params, By::Ip, 2).unwrap(),
+        vec!["203.0.113.1".to_owned()]
+    );
+    assert_eq!(
+        collect(&store, &params, By::Network, 1).unwrap(),
+        vec!["203.0.113.0/24".to_owned()]
+    );
+    let all = collect(&store, &params, By::Ip, 1).unwrap();
+    assert_eq!(all.len(), 6);
+    assert_eq!(
+        format(&all, Style::Nginx).unwrap().lines().next(),
+        Some("deny 203.0.113.1;")
+    );
+}
+
+#[test]
+fn block_lists_never_include_verified_bots_or_local_addresses() {
+    use super::blocklist::{By, collect, protect};
+    let (_tmp, store) = fixture("report-blocklist-protect");
+    // Mark the Googlebot request (203.0.113.5) as verified, as a real ingest would.
+    store
+        .conn
+        .execute_batch("UPDATE requests SET bot_verify = 'verified' WHERE ip = '203.0.113.5'")
+        .unwrap();
+    let params = ReportParams::default();
+    let ips = collect(&store, &params, By::Ip, 1).unwrap();
+    assert_eq!(ips.len(), 5);
+    assert!(!ips.contains(&"203.0.113.5".to_owned()));
+    // Its whole network is protected too.
+    assert!(collect(&store, &params, By::Network, 1).unwrap().is_empty());
+
+    let picked = vec![
+        "203.0.113.1".to_owned(),
+        "203.0.113.5".to_owned(),
+        "127.0.0.1".to_owned(),
+        "203.0.113.0/24".to_owned(),
+    ];
+    let (kept, left_out) = protect(&store, &picked).unwrap();
+    assert_eq!(kept, vec!["203.0.113.1".to_owned()]);
+    assert_eq!(left_out.len(), 3);
+}

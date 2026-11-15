@@ -162,6 +162,16 @@ watch(() => [props.report, state.slug, state.revision, granularity.value], load,
           aria-label="Chart interval"
         />
         <UButton
+          v-if="report !== 'requests'"
+          icon="i-lucide-list"
+          color="neutral"
+          variant="outline"
+          size="sm"
+          label="View requests"
+          title="See the individual requests behind the current filters"
+          @click="state.view = 'requests'"
+        />
+        <UButton
           icon="i-lucide-refresh-cw"
           color="neutral"
           variant="outline"

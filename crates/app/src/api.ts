@@ -254,4 +254,6 @@ export const api = {
   rangesUpdate: () => call<UpdateOutcome[]>('ranges_update'),
   geoStatus: () => call<GeoStatus>('geo_status'),
   geoUpdate: () => call<GeoStatus>('geo_update'),
+  formatBlockList: (slug: string, entries: string[], style: 'plain' | 'nginx' | 'apache') =>
+    call<{ text: string; entries: number; left_out: string[] }>('format_block_list', { slug, entries, style }),
 }

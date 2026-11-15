@@ -368,3 +368,129 @@ pub fn status_codes(store: &Store, params: &ReportParams) -> Result<ReportResult
         ],
     )
 }
+
+/// Query strings. A crawler stuck in a loop, or a scraper walking a filter,
+/// shows up here as one shape with a huge hit count or an absurd parameter.
+pub fn queries(store: &Store, params: &ReportParams) -> Result<ReportResult> {
+    let mut scope = Scope::new(store, params)?;
+    scope.raw_only();
+    let filter = format!("{} AND r.query IS NOT NULL", scope.filter);
+    // Values are replaced so that requests differing only in their values
+    // group together. A second `?` inside a query is kept: it is a tell-tale.
+    let shape = "left(regexp_replace(r.query, '=[^&?]*', '=…', 'g'), 300)";
+    scope.notes.push(
+        "The shape is the query string with every value replaced by …, so requests that differ only in \
+         their values group together. A shape containing a second ? or the same parameter many times \
+         is usually a crawler following a broken link."
+            .to_owned(),
+    );
+    scope.finish(
+        "queries",
+        vec![
+            TableSpec {
+                name: "by_shape",
+                columns: vec![
+                    col("path", Text),
+                    col("query_shape", Text),
+                    col("hits", Integer),
+                    col("ips", Integer),
+                    col("errors", Integer),
+                    col("blocked", Integer),
+                    col("bytes", Integer),
+                ],
+                sql: format!(
+                    "SELECT r.path, {shape} AS query_shape, count(DISTINCT r.ip) AS ips, {COUNTS}
+                     FROM requests r WHERE {filter} GROUP BY 1, 2"
+                ),
+                order_by: "hits DESC, path, query_shape",
+                totals: Some((
+                    vec![col("hits", Integer), col("ips", Integer)],
+                    format!("SELECT count(*) AS hits, count(DISTINCT r.ip) AS ips FROM requests r WHERE {filter}"),
+                )),
+            },
+            TableSpec {
+                name: "by_param",
+                columns: vec![
+                    col("parameter", Text),
+                    col("hits", Integer),
+                    col("ips", Integer),
+                    col("paths", Integer),
+                    col("longest_value", Integer),
+                ],
+                sql: format!(
+                    "SELECT left(split_part(pair, '=', 1), 80) AS parameter, count(*) AS hits,
+                            count(DISTINCT ip) AS ips, count(DISTINCT path) AS paths,
+                            max(length(pair) - length(split_part(pair, '=', 1)) - 1) AS longest_value
+                     FROM (SELECT r.ip, r.path, unnest(string_split(r.query, '&')) AS pair
+                           FROM requests r WHERE {filter})
+                     WHERE pair <> '' GROUP BY 1"
+                ),
+                order_by: "hits DESC, parameter",
+                totals: None,
+            },
+            TableSpec {
+                name: "by_path",
+                columns: vec![
+                    col("path", Text),
+                    col("hits", Integer),
+                    col("distinct_queries", Integer),
+                    col("ips", Integer),
+                    col("errors", Integer),
+                    col("bytes", Integer),
+                ],
+                sql: format!(
+                    "SELECT r.path, count(DISTINCT r.query) AS distinct_queries, count(DISTINCT r.ip) AS ips,
+                            {COUNTS}
+                     FROM requests r WHERE {filter} GROUP BY 1"
+                ),
+                order_by: "hits DESC, path",
+                totals: None,
+            },
+        ],
+    )
+}
+
+/// The individual requests behind the current filters: the drill-down from
+/// every other report. Paged from the database, never loaded whole.
+pub fn requests(store: &Store, params: &ReportParams) -> Result<ReportResult> {
+    let mut scope = Scope::new(store, params)?;
+    scope.raw_only();
+    let filter = scope.filter.clone();
+    scope.notes.push(
+        "Times are in the site's time zone. The original log lines are not stored; these are the parsed fields."
+            .to_owned(),
+    );
+    scope.finish(
+        "requests",
+        vec![TableSpec {
+            name: "requests",
+            columns: vec![
+                col("time", Datetime),
+                col("ip", Text),
+                col("country", Text),
+                col("asn_org", Text),
+                col("method", Text),
+                col("path", Text),
+                col("query", Text),
+                col("status", Integer),
+                col("bytes", Integer),
+                col("referrer", Text),
+                col("user_agent", Text),
+                col("agent_type", Text),
+                col("verify", Text),
+            ],
+            sql: format!(
+                "SELECT strftime(r.ts_local, '%Y-%m-%d %H:%M:%S') AS time, r.ip, r.country, r.asn_org,
+                        r.method, coalesce(r.path, r.raw_request) AS path, r.query, r.status, r.bytes,
+                        r.referer AS referrer, nullif(u.ua, '') AS user_agent, u.category AS agent_type,
+                        r.bot_verify AS verify
+                 FROM {ROWS} WHERE {filter}"
+            ),
+            order_by: "time DESC, ip",
+            totals: Some((
+                vec![col("requests", Integer), col("ips", Integer)],
+                format!("SELECT count(*) AS requests, count(DISTINCT r.ip) AS ips FROM requests r WHERE {filter}"),
+            )),
+        }],
+    )
+}

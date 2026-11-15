@@ -79,6 +79,27 @@ enum Command {
     /// Country and network (ASN) databases: download DB-IP Lite or show what is installed
     #[command(subcommand)]
     Geo(GeoCommand),
+    /// Print the busiest addresses or networks as a block list to paste into a server config
+    Blocklist(BlocklistArgs),
+}
+
+#[derive(Args)]
+struct BlocklistArgs {
+    slug: String,
+    /// List single addresses (ip) or their /24 and /48 networks (network)
+    #[arg(long, default_value = "ip")]
+    by: String,
+    /// plain, nginx or apache
+    #[arg(long, default_value = "plain")]
+    style: String,
+    /// Only addresses or networks with at least this many requests
+    #[arg(long = "min-hits", default_value_t = 100)]
+    min_hits: u64,
+    /// At most this many entries, busiest first
+    #[arg(long, default_value_t = 1000)]
+    limit: u64,
+    #[command(flatten)]
+    filter: FilterArgs,
 }
 
 #[derive(Subcommand)]
@@ -175,10 +196,7 @@ enum GranularityArg {
 }
 
 #[derive(Args)]
-struct ReportArgs {
-    slug: String,
-    /// Report name (see `logloupe reports`)
-    name: String,
+struct FilterArgs {
     /// First day, in the site's time zone (default: earliest data)
     #[arg(long, value_name = "DATE")]
     from: Option<NaiveDate>,
@@ -215,6 +233,39 @@ struct ReportArgs {
     /// User agent contains this text; "(none)" for none; start with = for an exact match
     #[arg(long = "user-agent", value_name = "TEXT")]
     user_agent: Option<String>,
+}
+
+impl FilterArgs {
+    /// The date range and filters as report parameters.
+    fn params(self) -> ReportParams {
+        ReportParams {
+            from: self.from,
+            to: self.to,
+            filters: Filters {
+                status_class: self.status,
+                status: self.status_code,
+                path_prefix: self.path_prefix,
+                ip: self.ip,
+                source_type: self.source_type,
+                country: self.country,
+                asn: self.asn,
+                bot: self.bot,
+                verified: self.verified,
+                referrer: self.referrer,
+                user_agent: self.user_agent,
+            },
+            ..ReportParams::default()
+        }
+    }
+}
+
+#[derive(Args)]
+struct ReportArgs {
+    slug: String,
+    /// Report name (see `logloupe reports`)
+    name: String,
+    #[command(flatten)]
+    filter: FilterArgs,
     /// Bucket size for time series
     #[arg(long, value_enum)]
     granularity: Option<GranularityArg>,
@@ -349,6 +400,7 @@ fn run(cli: Cli, json: bool) -> Result<()> {
         Command::Ranges(command) => ranges(&app, command),
         Command::Reenrich { slug } => reenrich(&app, &slug),
         Command::Geo(command) => geo(&app, command),
+        Command::Blocklist(args) => blocklist(&app, args),
     }
 }
 
@@ -649,21 +701,6 @@ fn print_file_report(app: &App, report: &FileReport) {
 
 fn run_report(app: &App, args: ReportArgs) -> Result<()> {
     let params = ReportParams {
-        from: args.from,
-        to: args.to,
-        filters: Filters {
-            status_class: args.status,
-            status: args.status_code,
-            path_prefix: args.path_prefix,
-            ip: args.ip,
-            source_type: args.source_type,
-            country: args.country,
-            asn: args.asn,
-            bot: args.bot,
-            verified: args.verified,
-            referrer: args.referrer,
-            user_agent: args.user_agent,
-        },
         granularity: args.granularity.map(|g| match g {
             GranularityArg::Hour => Granularity::Hour,
             GranularityArg::Day => Granularity::Day,
@@ -671,6 +708,7 @@ fn run_report(app: &App, args: ReportArgs) -> Result<()> {
         table: args.table,
         limit: args.limit,
         offset: args.offset,
+        ..args.filter.params()
     };
     let store = app.open(&args.slug, Mode::ReadOnly)?;
     let result = report::run(&store, &args.name, &params)?;
@@ -1076,5 +1114,36 @@ fn geo(app: &App, command: GeoCommand) -> Result<()> {
             logloupe_core::geo::geo_dir(app.dir.root()).display()
         );
     }
+    Ok(())
+}
+
+fn blocklist(app: &App, args: BlocklistArgs) -> Result<()> {
+    use logloupe_core::report::blocklist::{By, Style, collect, format};
+    let (by, style): (By, Style) = (args.by.parse()?, args.style.parse()?);
+    let params = ReportParams {
+        limit: args.limit,
+        ..args.filter.params()
+    };
+    let store = app.open(&args.slug, Mode::ReadOnly)?;
+    let entries = collect(&store, &params, by, args.min_hits)?;
+    if app.json {
+        app.emit(
+            &json!({ "site": args.slug, "entries": entries, "text": format(&entries, style)? }),
+        );
+        return Ok(());
+    }
+    if entries.is_empty() {
+        app.note(&format!(
+            "Nothing made {} or more requests with these filters. Lower --min-hits to see more.",
+            args.min_hits
+        ));
+        return Ok(());
+    }
+    print!("{}", format(&entries, style)?);
+    app.note(&format!(
+        "{} entries. Verified bots and the server's own addresses are left out. Check the list before \
+         using it: it is the busiest remaining traffic, not a judgement of who is hostile.",
+        entries.len()
+    ));
     Ok(())
 }

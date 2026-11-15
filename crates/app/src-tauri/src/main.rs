@@ -323,6 +323,37 @@ async fn ranges_update(state: State<'_, AppState>) -> CommandResult<Vec<ranges::
     blocking(move || ranges::update_online(dir.root(), &Registry::load(dir.root())?)).await
 }
 
+#[derive(Serialize)]
+struct BlockList {
+    text: String,
+    entries: usize,
+    /// Left out because they have verified bot traffic or are the server's own addresses.
+    left_out: Vec<String>,
+}
+
+/// Formats addresses and networks as a block list. The engine drops any with
+/// verified bot traffic and any local address, and refuses anything that is
+/// not an address or network.
+#[tauri::command]
+async fn format_block_list(
+    state: State<'_, AppState>,
+    slug: String,
+    entries: Vec<String>,
+    style: report::blocklist::Style,
+) -> CommandResult<BlockList> {
+    let (dir, opts) = (state.dir.clone(), state.opts.clone());
+    blocking(move || {
+        let store = Store::open(&dir, &slug, Mode::ReadOnly, &opts)?;
+        let (kept, left_out) = report::blocklist::protect(&store, &entries)?;
+        Ok(BlockList {
+            text: report::blocklist::format(&kept, style)?,
+            entries: kept.len(),
+            left_out,
+        })
+    })
+    .await
+}
+
 #[tauri::command]
 async fn geo_status(state: State<'_, AppState>) -> CommandResult<logloupe_core::geo::GeoStatus> {
     let dir = state.dir.clone();
@@ -365,6 +396,7 @@ fn main() {
             ranges_update,
             geo_status,
             geo_update,
+            format_block_list,
         ])
         .run(tauri::generate_context!())
         .expect("the app failed to start");

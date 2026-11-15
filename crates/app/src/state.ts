@@ -7,6 +7,8 @@ import { api, type Filters, type ReportParams, type SiteEntry } from './api'
 export const state = reactive({
   sites: [] as SiteEntry[],
   sitesLoaded: false,
+  /** The screen being shown: a report name, or ingest, storage, sites, settings. */
+  view: 'sites',
   slug: localStorage.getItem('logloupe.site') ?? '',
   from: '',
   to: '',

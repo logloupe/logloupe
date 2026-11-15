@@ -11,6 +11,7 @@ use crate::error::{Error, Result};
 use crate::store::Store;
 
 mod abuse;
+pub mod blocklist;
 mod bots;
 mod traffic;
 
@@ -241,6 +242,18 @@ pub const REPORTS: &[ReportInfo] = &[
         description: "Referrers exactly as sent, internal ones included, with who sent them.",
         tables: &["by_referrer", "by_host"],
         run: abuse::referrers,
+    },
+    ReportInfo {
+        name: "queries",
+        description: "Query strings by shape, by parameter and by path, to spot loops and scraping.",
+        tables: &["by_shape", "by_param", "by_path"],
+        run: abuse::queries,
+    },
+    ReportInfo {
+        name: "requests",
+        description: "The individual requests behind the current filters, newest first.",
+        tables: &["requests"],
+        run: abuse::requests,
     },
 ];
 
