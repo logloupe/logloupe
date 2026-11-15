@@ -31,6 +31,7 @@ const reports = [
   { name: 'sources', description: 'Pages by source type and referrer.', tables: ['by_source_type', 'by_referrer_host'] },
   { name: 'bots', description: 'Registered bots.', tables: ['by_bot'] },
   { name: 'fake-bots', description: 'Fake bots.', tables: ['by_bot'] },
+  { name: 'top-ips', description: 'Busiest addresses.', tables: ['by_ip'] },
 ]
 
 function seriesTable(): ReportTable {
@@ -84,11 +85,37 @@ function genericTable(name: string): ReportTable {
   }
 }
 
+function ipTable(): ReportTable {
+  return {
+    name: 'by_ip',
+    columns: [
+      { key: 'ip', type: 'string' },
+      { key: 'network', type: 'string' },
+      { key: 'country', type: 'string' },
+      { key: 'hits', type: 'integer' },
+      { key: 'errors', type: 'integer' },
+      { key: 'verify', type: 'string' },
+    ],
+    rows: Array.from({ length: 30 }, (_, i) => [
+      `203.0.113.${i + 1}`,
+      '203.0.113.0/24',
+      i % 3 ? 'GB' : 'US',
+      5000 - i * 140,
+      i * 12,
+      i === 2 ? 'verified' : null,
+    ]),
+    totals: { hits: 90_000, ips: 30 },
+    total_rows: 30,
+    offset: 0,
+    limit: 50,
+  }
+}
+
 function report(name: string, table?: string | null): ReportResult {
   const listing = reports.find((r) => r.name === name) ?? reports[0]
   const tables = listing.tables
     .filter((t) => !table || t === table)
-    .map((t) => (t === 'series' ? seriesTable() : genericTable(t)))
+    .map((t) => (t === 'series' ? seriesTable() : t === 'by_ip' ? ipTable() : genericTable(t)))
   return {
     report: name,
     site: 'example',
