@@ -42,6 +42,7 @@ const groups: { title: string; items: NavItem[] }[] = [
   {
     title: 'Abuse',
     items: [
+      { id: 'bursts', label: 'Bursts', icon: 'i-lucide-zap', description: 'Incidents: minutes where an address, network, provider or the whole site ran far above the normal rate.' },
       { id: 'status-codes', label: 'Status codes', icon: 'i-lucide-activity', description: 'Response codes over time, per code, and the URLs and addresses behind the errors.' },
       { id: 'top-ips', label: 'Top IPs', icon: 'i-lucide-flame', description: 'The busiest addresses, networks, user agents and paths, with peak requests per minute.' },
       { id: 'queries', label: 'Query strings', icon: 'i-lucide-braces', description: 'Query strings grouped by shape, parameter and path. A crawler stuck in a loop shows up here.' },

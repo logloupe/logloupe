@@ -119,6 +119,7 @@ export interface ReportParams {
   to?: string | null
   filters?: Filters
   granularity?: 'hour' | 'day' | null
+  threshold?: number | null
   table?: string | null
   limit?: number
   offset?: number

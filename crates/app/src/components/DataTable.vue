@@ -10,17 +10,24 @@ const props = defineProps<{ table: ReportTable; loading?: boolean }>()
 const emit = defineEmits<{ page: [offset: number]; export: [] }>()
 
 const toast = useToast()
+const blockable = /^[0-9a-f:.]+(\/\d{1,3})?$/i
 
 // Tables that list addresses or networks can be turned into a block list.
 const targetIndex = computed(() => {
   const keys = props.table.columns.map((c) => c.key)
-  const ip = keys.indexOf('ip')
-  return ip >= 0 ? ip : keys.indexOf('network')
+  for (const key of ['ip', 'network', 'target']) {
+    const index = keys.indexOf(key)
+    if (index >= 0) return index
+  }
+  return -1
 })
 const selectable = computed(() => targetIndex.value >= 0)
 const selected = ref(new Set<string>())
 const targets = computed(() =>
-  props.table.rows.map((row) => row[targetIndex.value]).filter((v): v is string => typeof v === 'string' && v !== ''),
+  props.table.rows
+    .map((row) => row[targetIndex.value])
+    // Only addresses and networks can be blocked; a provider or "(whole site)" cannot.
+    .filter((v): v is string => typeof v === 'string' && blockable.test(v)),
 )
 const allSelected = computed(() => targets.value.length > 0 && targets.value.every((t) => selected.value.has(t)))
 
@@ -184,6 +191,7 @@ const hasNext = computed(() => last.value < props.table.total_rows)
           <tr v-for="(row, r) in table.rows" :key="r" class="group border-t border-default">
             <td v-if="selectable" class="w-8 py-1.5 pl-4 group-hover:bg-elevated">
               <input
+                v-if="typeof row[targetIndex] === 'string' && blockable.test(String(row[targetIndex]))"
                 type="checkbox"
                 class="size-3.5 cursor-pointer accent-(--ui-primary)"
                 :checked="typeof row[targetIndex] === 'string' && selected.has(String(row[targetIndex]))"

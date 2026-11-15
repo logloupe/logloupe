@@ -603,3 +603,136 @@ fn block_lists_never_include_verified_bots_or_local_addresses() {
     assert_eq!(kept, vec!["203.0.113.1".to_owned()]);
     assert_eq!(left_out.len(), 3);
 }
+
+#[test]
+fn bursts_become_incidents() {
+    // Ten quiet minutes at 3 requests a minute, with one address sending 100
+    // requests at 10:03, 80 at 10:04, and after a gap 70 at 10:20.
+    let mut log = String::new();
+    for minute in 0..10 {
+        for visitor in 0..3u8 {
+            log += &format!(
+                "198.51.100.{} - - [14/Nov/2026:10:{minute:02}:{:02} +0000] \"GET /page-{minute}/ HTTP/2.0\" 200 100 \"-\" \"{CHROME}\"\n",
+                visitor + 1,
+                visitor * 10
+            );
+        }
+    }
+    for (minute, count) in [(3, 100), (4, 80), (20, 70)] {
+        for n in 0..count {
+            log += &format!(
+                "203.0.113.50 - - [14/Nov/2026:10:{minute:02}:{:02} +0000] \"POST /wp-login.php HTTP/2.0\" {} 50 \"-\" \"{CHROME}\"\n",
+                n % 60,
+                if n % 2 == 0 { 200 } else { 429 }
+            );
+        }
+    }
+    let tmp = TempDataDir::new("report-bursts");
+    let mut store = Store::create(
+        &tmp.0,
+        "site",
+        &SiteSettings::default(),
+        &OpenOptions::default(),
+    )
+    .unwrap();
+    let path = tmp.0.root().join("access.log");
+    std::fs::write(&path, log).unwrap();
+    ingest(
+        &mut store,
+        &[path],
+        &IngestOptions::default(),
+        &mut |_| {},
+        &AtomicBool::new(false),
+    )
+    .unwrap();
+
+    let result = run(&store, "bursts", &ReportParams::default()).unwrap();
+    let incidents = rows(&result, "incidents");
+    let by_address: Vec<&Json> = incidents
+        .iter()
+        .filter(|i| i["level"] == "address")
+        .collect();
+    assert_eq!(
+        by_address.len(),
+        2,
+        "two bursts fifteen minutes apart are two incidents"
+    );
+    let first = by_address
+        .iter()
+        .find(|i| i["peak_per_minute"] == 100)
+        .unwrap();
+    assert_eq!(first["target"], "203.0.113.50");
+    assert_eq!(
+        (&first["start"], &first["end"]),
+        (&json!("2026-11-14 10:03:00"), &json!("2026-11-14 10:04:59"))
+    );
+    assert_eq!(
+        (&first["burst_minutes"], &first["requests"], &first["ips"]),
+        (&json!(2), &json!(180), &json!(1))
+    );
+    assert_eq!(
+        (&first["errors"], &first["blocked"], &first["top_path"]),
+        (&json!(90), &json!(90), &json!("/wp-login.php"))
+    );
+    let second = by_address
+        .iter()
+        .find(|i| i["peak_per_minute"] == 70)
+        .unwrap();
+    assert_eq!(second["requests"], 70);
+
+    // The first burst also lifts the whole site above three times its normal rate.
+    assert!(
+        incidents
+            .iter()
+            .any(|i| i["level"] == "site" && i["peak_per_minute"] == 103)
+    );
+    // One address alone is not a network or provider incident.
+    assert!(
+        !incidents
+            .iter()
+            .any(|i| i["level"] == "network" || i["level"] == "provider")
+    );
+
+    let id = first["incident"].clone();
+    let mix: Vec<Json> = rows(&result, "status_mix")
+        .into_iter()
+        .filter(|s| s["incident"] == id)
+        .collect();
+    assert_eq!(mix.len(), 2);
+    assert!(mix.iter().all(|s| s["hits"] == 90));
+    assert!(
+        rows(&result, "top_paths")
+            .iter()
+            .any(|p| p["incident"] == id && p["path"] == "/wp-login.php" && p["hits"] == 180)
+    );
+    assert!(
+        result
+            .notes
+            .iter()
+            .any(|n| n.contains("Normal for this site"))
+    );
+
+    // A higher explicit threshold leaves only the biggest minute.
+    let strict = ReportParams {
+        threshold: Some(90),
+        ..Default::default()
+    };
+    let strict_rows = rows(&run(&store, "bursts", &strict).unwrap(), "incidents");
+    assert_eq!(
+        strict_rows
+            .iter()
+            .filter(|i| i["level"] == "address")
+            .count(),
+        1
+    );
+
+    // A quiet site has no incidents.
+    let (_tmp2, quiet) = fixture("report-bursts-quiet");
+    assert!(
+        rows(
+            &run(&quiet, "bursts", &ReportParams::default()).unwrap(),
+            "incidents"
+        )
+        .is_empty()
+    );
+}

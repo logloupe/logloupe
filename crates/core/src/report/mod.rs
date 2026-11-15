@@ -67,6 +67,9 @@ pub struct ReportParams {
     pub to: Option<NaiveDate>,
     pub filters: Filters,
     pub granularity: Option<Granularity>,
+    /// Bursts report: requests per minute from one address that count as a
+    /// burst. `None` works it out from the site's normal rate.
+    pub threshold: Option<u64>,
     /// Return only this table.
     pub table: Option<String>,
     pub limit: u64,
@@ -80,6 +83,7 @@ impl Default for ReportParams {
             to: None,
             filters: Filters::default(),
             granularity: None,
+            threshold: None,
             table: None,
             limit: DEFAULT_LIMIT,
             offset: 0,
@@ -217,6 +221,12 @@ pub const REPORTS: &[ReportInfo] = &[
         description: "Tools, HTTP libraries, and empty or unrecognised user agents.",
         tables: &["by_agent", "by_ip"],
         run: bots::undeclared,
+    },
+    ReportInfo {
+        name: "bursts",
+        description: "Incidents: minutes where an address, network, provider or the whole site ran far above the normal rate.",
+        tables: &["incidents", "top_paths", "status_mix"],
+        run: abuse::bursts,
     },
     ReportInfo {
         name: "status-codes",

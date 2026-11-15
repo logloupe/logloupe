@@ -269,6 +269,9 @@ struct ReportArgs {
     /// Bucket size for time series
     #[arg(long, value_enum)]
     granularity: Option<GranularityArg>,
+    /// Bursts report: requests a minute from one address that count as a burst
+    #[arg(long, value_name = "RATE")]
+    threshold: Option<u64>,
     /// Return only this table
     #[arg(long, value_name = "NAME")]
     table: Option<String>,
@@ -705,6 +708,7 @@ fn run_report(app: &App, args: ReportArgs) -> Result<()> {
             GranularityArg::Hour => Granularity::Hour,
             GranularityArg::Day => Granularity::Day,
         }),
+        threshold: args.threshold,
         table: args.table,
         limit: args.limit,
         offset: args.offset,

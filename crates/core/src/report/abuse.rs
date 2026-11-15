@@ -494,3 +494,180 @@ pub fn requests(store: &Store, params: &ReportParams) -> Result<ReportResult> {
         }],
     )
 }
+
+/// Minutes closer together than this are one incident.
+const INCIDENT_GAP_MINUTES: u32 = 5;
+/// The busiest incidents kept; more than this is noise, not a list to act on.
+const MAX_INCIDENTS: u32 = 500;
+
+/// Burst detection (spec 6.3.1). Counts requests per minute at four levels
+/// (one address, its /24 or /48, its provider, and the whole site), flags the
+/// minutes above a threshold, and merges neighbouring flagged minutes into
+/// incidents.
+///
+/// A network is only flagged when at least two of its addresses are active in
+/// the minute, and a provider when at least two of its networks are, so one
+/// noisy address does not show up three times.
+pub fn bursts(store: &Store, params: &ReportParams) -> Result<ReportResult> {
+    let mut scope = Scope::new(store, params)?;
+    scope.raw_only();
+    let filter = scope.filter.clone();
+    let conn = scope.conn();
+
+    // "Normal" is the site's median requests per minute over the range.
+    let median: f64 = conn.query_row(
+        &format!(
+            "SELECT coalesce(median(c), 0) FROM (
+               SELECT count(*) AS c FROM requests r WHERE {filter} GROUP BY date_trunc('minute', r.ts))"
+        ),
+        [],
+        |row| row.get(0),
+    )?;
+    // One address doing half the site's normal traffic is a burst; a network
+    // needs the whole of it, a provider twice it, the site itself three times.
+    // The floors stop quiet sites flagging a visitor loading one page.
+    let (ip_rate, network_rate, asn_rate, site_rate) = match params.threshold {
+        Some(rate) => (rate, rate * 2, rate * 5, rate * 5),
+        None => (
+            (median * 0.5).ceil().max(60.0) as u64,
+            median.ceil().max(120.0) as u64,
+            (median * 2.0).ceil().max(300.0) as u64,
+            (median * 3.0).ceil().max(100.0) as u64,
+        ),
+    };
+
+    conn.execute_batch(&format!(
+        "CREATE OR REPLACE TEMP TABLE loga_burst_minutes AS
+           SELECT 'address' AS level, r.ip AS target, date_trunc('minute', r.ts) AS m, count(*) AS c
+           FROM requests r WHERE {filter} GROUP BY ALL HAVING count(*) >= {ip_rate}
+           UNION ALL
+           SELECT 'network', r.ip_net, date_trunc('minute', r.ts), count(*)
+           FROM requests r WHERE {filter} GROUP BY ALL
+           HAVING count(*) >= {network_rate} AND count(DISTINCT r.ip) >= 2
+           UNION ALL
+           SELECT 'provider', 'AS' || CAST(r.asn AS VARCHAR), date_trunc('minute', r.ts), count(*)
+           FROM requests r WHERE {filter} AND r.asn IS NOT NULL GROUP BY ALL
+           HAVING count(*) >= {asn_rate} AND count(DISTINCT r.ip_net) >= 2
+           UNION ALL
+           SELECT 'site', '(whole site)', date_trunc('minute', r.ts), count(*)
+           FROM requests r WHERE {filter} GROUP BY ALL HAVING count(*) >= {site_rate};
+
+         CREATE OR REPLACE TEMP TABLE loga_incidents AS
+           WITH marked AS (
+             SELECT *, CASE WHEN lag(m) OVER w IS NULL
+                              OR m - lag(m) OVER w > INTERVAL {INCIDENT_GAP_MINUTES} MINUTE
+                            THEN 1 ELSE 0 END AS starts
+             FROM loga_burst_minutes
+             WINDOW w AS (PARTITION BY level, target ORDER BY m)),
+           grouped AS (
+             SELECT *, sum(starts) OVER (PARTITION BY level, target ORDER BY m) AS g FROM marked),
+           merged AS (
+             SELECT level, target, min(m) AS start_ts, max(m) + INTERVAL 1 MINUTE AS end_ts,
+                    count(*) AS burst_minutes, max(c) AS peak
+             FROM grouped GROUP BY level, target, g)
+           SELECT row_number() OVER (ORDER BY peak DESC, start_ts, level, target) AS incident_id, *
+           FROM merged ORDER BY peak DESC, start_ts, level, target LIMIT {MAX_INCIDENTS};
+
+         CREATE OR REPLACE TEMP TABLE loga_incident_rows AS
+           SELECT i.incident_id, r.ip, r.path, r.raw_request, r.status, r.ua_id, r.bot_verify,
+                  r.ts_local, r.asn_org
+           FROM requests r JOIN loga_incidents i
+             ON i.level = 'address' AND r.ip = i.target AND r.ts >= i.start_ts AND r.ts < i.end_ts
+           WHERE {filter}
+           UNION ALL
+           SELECT i.incident_id, r.ip, r.path, r.raw_request, r.status, r.ua_id, r.bot_verify,
+                  r.ts_local, r.asn_org
+           FROM requests r JOIN loga_incidents i
+             ON i.level = 'network' AND r.ip_net = i.target AND r.ts >= i.start_ts AND r.ts < i.end_ts
+           WHERE {filter}
+           UNION ALL
+           SELECT i.incident_id, r.ip, r.path, r.raw_request, r.status, r.ua_id, r.bot_verify,
+                  r.ts_local, r.asn_org
+           FROM requests r JOIN loga_incidents i
+             ON i.level = 'provider' AND 'AS' || CAST(r.asn AS VARCHAR) = i.target
+                AND r.ts >= i.start_ts AND r.ts < i.end_ts
+           WHERE {filter}
+           UNION ALL
+           SELECT i.incident_id, r.ip, r.path, r.raw_request, r.status, r.ua_id, r.bot_verify,
+                  r.ts_local, r.asn_org
+           FROM requests r JOIN (SELECT * FROM loga_incidents WHERE level = 'site') i
+             ON r.ts >= i.start_ts AND r.ts < i.end_ts
+           WHERE {filter};"
+    ))?;
+
+    scope.notes.push(format!(
+        "Normal for this site over the range is {median:.0} requests a minute. A minute counts as a burst at \
+         {ip_rate} or more from one address, {network_rate} from one network (at least two addresses), \
+         {asn_rate} from one provider (at least two networks), or {site_rate} across the whole site. \
+         Bursts less than {INCIDENT_GAP_MINUTES} minutes apart are one incident."
+    ));
+    scope.notes.push(
+        "Requests, addresses and errors cover the whole incident from its first burst minute to its last. \
+         A verified bot or the server's own address can cause an incident; neither goes into a block list."
+            .to_owned(),
+    );
+    scope.finish(
+        "bursts",
+        vec![
+            TableSpec {
+                name: "incidents",
+                columns: vec![
+                    col("incident", Integer),
+                    col("level", Text),
+                    col("target", Text),
+                    col("network_owner", Text),
+                    col("start", Datetime),
+                    col("end", Datetime),
+                    col("burst_minutes", Integer),
+                    col("peak_per_minute", Integer),
+                    col("requests", Integer),
+                    col("ips", Integer),
+                    col("errors", Integer),
+                    col("blocked", Integer),
+                    col("top_path", Text),
+                    col("agent_type", Text),
+                    col("agent", Text),
+                    col("verify", Text),
+                ],
+                sql: "SELECT i.incident_id AS incident, i.level, i.target,
+                             CASE WHEN i.level = 'site' THEN NULL ELSE mode(x.asn_org) END AS network_owner,
+                             strftime(min(x.ts_local), '%Y-%m-%d %H:%M:%S') AS start,
+                             strftime(max(x.ts_local), '%Y-%m-%d %H:%M:%S') AS \"end\",
+                             i.burst_minutes, i.peak AS peak_per_minute,
+                             count(*) AS requests, count(DISTINCT x.ip) AS ips,
+                             count(*) FILTER (WHERE x.status >= 400) AS errors,
+                             count(*) FILTER (WHERE x.status IN (403, 429, 444)) AS blocked,
+                             mode(coalesce(x.path, x.raw_request)) AS top_path,
+                             mode(u.category) AS agent_type, mode(u.family) AS agent,
+                             CASE WHEN i.level = 'site' THEN NULL ELSE max(x.bot_verify) END AS verify
+                      FROM loga_incidents i JOIN loga_incident_rows x USING (incident_id)
+                      LEFT JOIN user_agents u ON u.ua_id = x.ua_id
+                      GROUP BY i.incident_id, i.level, i.target, i.burst_minutes, i.peak"
+                    .to_owned(),
+                order_by: "peak_per_minute DESC, incident",
+                totals: None,
+            },
+            TableSpec {
+                name: "top_paths",
+                columns: vec![col("incident", Integer), col("path", Text), col("hits", Integer)],
+                sql: "SELECT incident, path, hits FROM (
+                        SELECT incident_id AS incident, coalesce(path, raw_request) AS path, count(*) AS hits,
+                               row_number() OVER (PARTITION BY incident_id ORDER BY count(*) DESC) AS rank
+                        FROM loga_incident_rows GROUP BY 1, 2)
+                      WHERE rank <= 5"
+                    .to_owned(),
+                order_by: "incident, hits DESC, path",
+                totals: None,
+            },
+            TableSpec {
+                name: "status_mix",
+                columns: vec![col("incident", Integer), col("status", Integer), col("hits", Integer)],
+                sql: "SELECT incident_id AS incident, status, count(*) AS hits
+                      FROM loga_incident_rows GROUP BY 1, 2"
+                    .to_owned(),
+                order_by: "incident, hits DESC, status",
+                totals: None,
+            },
+        ],
+    )
+}
