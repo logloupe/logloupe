@@ -17,7 +17,7 @@ use logloupe_core::maintain::{
 use logloupe_core::report::{self, ReportParams, ReportResult};
 use logloupe_core::store::{DataDir, Mode, OpenOptions, SettingsPatch, SiteSettings, Store};
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 struct AppState {
     dir: DataDir,
@@ -383,6 +383,15 @@ async fn geo_update(state: State<'_, AppState>) -> CommandResult<logloupe_core::
 fn main() {
     let dir = DataDir::resolve(None).expect("a per-user data directory is available");
     tauri::Builder::default()
+        // Must be registered first. Two copies would fight over the same site
+        // databases, so starting the app again brings the open window forward.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState {
             dir,
