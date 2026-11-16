@@ -6,11 +6,18 @@
 //! stdout), `--days <N>` (default 1), `--start <YYYY-MM-DD>` (default
 //! 2026-11-01), `--seed <N>`.
 //!
-//! The output is deterministic for a given seed. It contains a browser / bot /
-//! tool mix, fake bots (Googlebot, GPTBot and ClaudeBot user agents from an
-//! address outside those operators' ranges), and one burst from a single
-//! address about 40% of the way through. Genuine bots use addresses inside the
-//! ranges their operators published in November 2026.
+//! The output is deterministic for a given seed. Traffic rises and falls
+//! through the day and differs from day to day. It contains:
+//!
+//! - a browser, bot and tool mix, with genuine bots using addresses inside the
+//!   ranges their operators published in November 2026;
+//! - fake bots: Googlebot, GPTBot and ClaudeBot user agents from 203.0.113.0/24;
+//! - tools and scanners from 192.0.2.0/24;
+//! - one burst about 62% of the way through: for six minutes a dozen addresses
+//!   in 198.51.100.0/24 follow a pagination link that keeps appending to itself.
+//!
+//! Everything accused of anything uses the documentation ranges (RFC 5737), so
+//! no real network is labelled fake or abusive.
 
 use std::fs::File;
 use std::io::{self, BufWriter, Write};
@@ -148,6 +155,9 @@ const PROBES: &[&str] = &[
     "/phpmyadmin/",
 ];
 
+/// During the burst, this many extra requests accompany each ordinary one.
+const BURST_FACTOR: u64 = 10;
+
 const MONTHS: [&str; 12] = [
     "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ];
@@ -172,6 +182,35 @@ fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
     let yoe = y.rem_euclid(400);
     let doy = (153 * ((month + 9) % 12) + 2) / 5 + day - 1;
     era * 146_097 + yoe * 365 + yoe / 4 - yoe / 100 + doy - 719_468
+}
+
+/// Writes one combined-format line and returns its length in bytes.
+#[allow(clippy::too_many_arguments)]
+fn emit(
+    out: &mut impl Write,
+    line: &mut String,
+    ts: i64,
+    ip: &str,
+    path: &str,
+    status: u16,
+    size: u64,
+    referer: &str,
+    ua: &str,
+) -> io::Result<u64> {
+    use std::fmt::Write as _;
+    let (year, month, day) = civil(ts.div_euclid(86_400));
+    let second = ts.rem_euclid(86_400);
+    line.clear();
+    let _ = writeln!(
+        line,
+        "{ip} - - [{day:02}/{}/{year}:{:02}:{:02}:{:02} +0000] \"GET {path} HTTP/2.0\" {status} {size} \"{referer}\" \"{ua}\"",
+        MONTHS[month - 1],
+        second / 3600,
+        second / 60 % 60,
+        second % 60,
+    );
+    out.write_all(line.as_bytes())?;
+    Ok(line.len() as u64)
 }
 
 fn parse_size(text: &str) -> Option<u64> {
@@ -244,32 +283,51 @@ fn main() -> io::Result<()> {
 
     // Lines average about 230 bytes; used to spread timestamps over the period.
     let expected_lines = cfg.max_lines.min(cfg.max_bytes / 230).max(1);
-    let span = cfg.days * 86_400;
-    let burst_start = expected_lines * 2 / 5;
-    let burst_len = (expected_lines / 200).clamp(50, 50_000);
     let start = cfg.start_day * 86_400;
+    let end = start + (cfg.days * 86_400) as i64 - 1;
 
-    let (mut bytes, mut lines) = (0u64, 0u64);
+    // The burst: for about six minutes a dozen addresses in one network send
+    // ten requests for every ordinary one, all following a broken pagination
+    // link that keeps appending to itself.
+    let per_minute = (expected_lines / (cfg.days * 1_440)).max(1);
+    let burst_span = (per_minute * 6).max(30);
+    let ordinary_lines = expected_lines
+        .saturating_sub(burst_span * BURST_FACTOR)
+        .max(1);
+    let burst_start = ordinary_lines * 62 / 100;
+
+    // Traffic rises and falls through the day, and differs from day to day.
+    let mut weights = Vec::with_capacity((cfg.days * 24) as usize);
+    for _day in 0..cfg.days {
+        let day_factor = 0.7 + rng.below(60) as f64 / 100.0;
+        for hour in 0..24 {
+            let daily = 1.0 + 0.45 * ((hour as f64 - 15.0) / 24.0 * std::f64::consts::TAU).cos();
+            weights.push(daily * day_factor);
+        }
+    }
+    let total_weight: f64 = weights.iter().sum();
+    let (mut hour, mut before) = (0usize, 0.0f64);
+
+    let (mut bytes, mut lines, mut ordinary) = (0u64, 0u64, 0u64);
     let mut line = String::with_capacity(512);
-    while bytes < cfg.max_bytes && lines < cfg.max_lines {
-        let ts = start + (lines as u128 * span as u128 / expected_lines as u128) as i64;
-        let ts = ts.min(start + span as i64 - 1);
-        let (year, month, day) = civil(ts.div_euclid(86_400));
-        let second = ts.rem_euclid(86_400);
+    // Stop at the end of the period as well: the size is an estimate, and lines
+    // past it would otherwise all land in the final second.
+    while bytes < cfg.max_bytes && lines < cfg.max_lines && ordinary < ordinary_lines {
+        // Place this line in time according to the hourly weights.
+        let target = (ordinary as f64 + 0.5) / ordinary_lines as f64 * total_weight;
+        while hour + 1 < weights.len() && before + weights[hour] < target {
+            before += weights[hour];
+            hour += 1;
+        }
+        let within = ((target - before) / weights[hour]).clamp(0.0, 0.999_99);
+        let ts = (start + hour as i64 * 3_600 + (within * 3_600.0) as i64).min(end);
 
-        let in_burst = (burst_start..burst_start + burst_len).contains(&lines);
         let roll = rng.below(1000);
         let (ip, ua, path, referer, status): (String, &str, String, String, u16);
-        if in_burst {
-            // One address hammering the login page.
-            ip = "203.0.113.44".to_owned();
-            ua = BROWSERS[0];
-            path = "/wp-login.php".to_owned();
-            referer = "-".to_owned();
-            status = if rng.chance(900) { 200 } else { 429 };
-        } else if roll < 10 {
-            // Fake Googlebot: the user agent from an address Google does not own.
-            ip = format!("45.148.10.{}", rng.below(8) + 1);
+        if roll < 10 {
+            // Fake bots: a real bot's user agent from an address its operator
+            // does not own. A documentation range, so no real network is accused.
+            ip = format!("203.0.113.{}", rng.below(8) + 1);
             // Mostly Googlebot, sometimes GPTBot or ClaudeBot.
             ua = BOTS[[0, 0, 0, 2, 3][rng.below(5) as usize]].0;
             path = rng.pick(PROBES).to_owned();
@@ -293,13 +351,8 @@ fn main() -> io::Result<()> {
                 _ => 200,
             };
         } else if roll < 310 {
-            ip = format!(
-                "{}.{}.{}.{}",
-                80 + rng.below(40),
-                rng.below(256),
-                rng.below(256),
-                rng.below(254) + 1
-            );
+            // Tools and scanners, also from a documentation range.
+            ip = format!("192.0.2.{}", rng.below(200) + 1);
             ua = rng.pick(TOOLS);
             path = if rng.chance(400) {
                 rng.pick(PROBES).to_owned()
@@ -362,19 +415,44 @@ fn main() -> io::Result<()> {
         } else {
             rng.below(600)
         };
-        line.clear();
-        use std::fmt::Write as _;
-        let _ = writeln!(
-            line,
-            "{ip} - - [{day:02}/{}/{year}:{:02}:{:02}:{:02} +0000] \"GET {path} HTTP/2.0\" {status} {size} \"{referer}\" \"{ua}\"",
-            MONTHS[month - 1],
-            second / 3600,
-            second / 60 % 60,
-            second % 60,
-        );
-        out.write_all(line.as_bytes())?;
-        bytes += line.len() as u64;
+        bytes += emit(
+            &mut out, &mut line, ts, &ip, &path, status, size, &referer, ua,
+        )?;
         lines += 1;
+
+        if (burst_start..burst_start + burst_span).contains(&ordinary) {
+            for _ in 0..BURST_FACTOR {
+                let ip = format!("198.51.100.{}", 20 + rng.below(12));
+                let page = rng.below(40) + 1;
+                // The same parameter stuck on again and again.
+                let query = vec![format!("page={page}"); (rng.below(4) + 1) as usize].join("?");
+                let status = match rng.below(100) {
+                    0..=59 => 200,
+                    60..=84 => 504,
+                    _ => 499,
+                };
+                let size = if status == 200 {
+                    30_000 + rng.below(20_000)
+                } else {
+                    0
+                };
+                let referer = "https://www.example.com/catalogue/";
+                let path = format!("/catalogue/?{query}");
+                bytes += emit(
+                    &mut out,
+                    &mut line,
+                    ts,
+                    &ip,
+                    &path,
+                    status,
+                    size,
+                    referer,
+                    BROWSERS[rng.below(3) as usize],
+                )?;
+                lines += 1;
+            }
+        }
+        ordinary += 1;
     }
     out.flush()?;
     eprintln!("gen_log: wrote {lines} lines, {:.1} MB", bytes as f64 / 1e6);

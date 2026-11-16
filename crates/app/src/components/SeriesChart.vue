@@ -69,6 +69,9 @@ function draw() {
     data(),
     host.value,
   )
+  // Until the pointer is over the chart, the legend shows the latest bucket
+  // rather than a row of dashes.
+  plot.setLegend({ idx: props.table.rows.length - 1 })
 }
 
 onMounted(() => {

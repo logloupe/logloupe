@@ -514,12 +514,20 @@ pub fn bursts(store: &Store, params: &ReportParams) -> Result<ReportResult> {
     let filter = scope.filter.clone();
     let conn = scope.conn();
 
+    // One pass over the requests: how many each address made in each minute.
+    // Every level below is derived from this, so nothing is scanned twice and
+    // no distinct counts are needed.
+    conn.execute_batch(&format!(
+        "CREATE OR REPLACE TEMP TABLE loga_ip_minutes AS
+           SELECT r.ip, any_value(r.ip_net) AS ip_net,
+                  'AS' || CAST(any_value(r.asn) AS VARCHAR) AS provider,
+                  date_trunc('minute', r.ts) AS m, count(*) AS c
+           FROM requests r WHERE {filter} GROUP BY r.ip, date_trunc('minute', r.ts);"
+    ))?;
+
     // "Normal" is the site's median requests per minute over the range.
     let median: f64 = conn.query_row(
-        &format!(
-            "SELECT coalesce(median(c), 0) FROM (
-               SELECT count(*) AS c FROM requests r WHERE {filter} GROUP BY date_trunc('minute', r.ts))"
-        ),
+        "SELECT coalesce(median(c), 0) FROM (SELECT sum(c) AS c FROM loga_ip_minutes GROUP BY m)",
         [],
         |row| row.get(0),
     )?;
@@ -538,19 +546,18 @@ pub fn bursts(store: &Store, params: &ReportParams) -> Result<ReportResult> {
 
     conn.execute_batch(&format!(
         "CREATE OR REPLACE TEMP TABLE loga_burst_minutes AS
-           SELECT 'address' AS level, r.ip AS target, date_trunc('minute', r.ts) AS m, count(*) AS c
-           FROM requests r WHERE {filter} GROUP BY ALL HAVING count(*) >= {ip_rate}
+           WITH networks AS (
+             SELECT ip_net, any_value(provider) AS provider, m, sum(c) AS c, count(*) AS ips
+             FROM loga_ip_minutes GROUP BY ip_net, m)
+           SELECT 'address' AS level, ip AS target, m, c FROM loga_ip_minutes WHERE c >= {ip_rate}
            UNION ALL
-           SELECT 'network', r.ip_net, date_trunc('minute', r.ts), count(*)
-           FROM requests r WHERE {filter} GROUP BY ALL
-           HAVING count(*) >= {network_rate} AND count(DISTINCT r.ip) >= 2
+           SELECT 'network', ip_net, m, c FROM networks WHERE c >= {network_rate} AND ips >= 2
            UNION ALL
-           SELECT 'provider', 'AS' || CAST(r.asn AS VARCHAR), date_trunc('minute', r.ts), count(*)
-           FROM requests r WHERE {filter} AND r.asn IS NOT NULL GROUP BY ALL
-           HAVING count(*) >= {asn_rate} AND count(DISTINCT r.ip_net) >= 2
+           SELECT 'provider', provider, m, sum(c) FROM networks WHERE provider IS NOT NULL
+           GROUP BY provider, m HAVING sum(c) >= {asn_rate} AND count(*) >= 2
            UNION ALL
-           SELECT 'site', '(whole site)', date_trunc('minute', r.ts), count(*)
-           FROM requests r WHERE {filter} GROUP BY ALL HAVING count(*) >= {site_rate};
+           SELECT 'site', '(whole site)', m, sum(c) FROM loga_ip_minutes
+           GROUP BY m HAVING sum(c) >= {site_rate};
 
          CREATE OR REPLACE TEMP TABLE loga_incidents AS
            WITH marked AS (
@@ -568,31 +575,34 @@ pub fn bursts(store: &Store, params: &ReportParams) -> Result<ReportResult> {
            SELECT row_number() OVER (ORDER BY peak DESC, start_ts, level, target) AS incident_id, *
            FROM merged ORDER BY peak DESC, start_ts, level, target LIMIT {MAX_INCIDENTS};
 
+         -- Every minute each incident covers, so requests can be matched to
+         -- incidents by equality (fast) instead of by time range (slow).
+         CREATE OR REPLACE TEMP TABLE loga_incident_minutes AS
+           SELECT incident_id, level, target,
+                  unnest(generate_series(start_ts, end_ts - INTERVAL 1 MINUTE, INTERVAL 1 MINUTE)) AS m
+           FROM loga_incidents;
+
          CREATE OR REPLACE TEMP TABLE loga_incident_rows AS
+           WITH r AS MATERIALIZED (
+             SELECT r.ip, r.ip_net, 'AS' || CAST(r.asn AS VARCHAR) AS provider, r.path, r.raw_request,
+                    r.status, r.ua_id, r.bot_verify, r.ts_local, r.asn_org,
+                    date_trunc('minute', r.ts) AS m
+             FROM requests r WHERE {filter})
            SELECT i.incident_id, r.ip, r.path, r.raw_request, r.status, r.ua_id, r.bot_verify,
                   r.ts_local, r.asn_org
-           FROM requests r JOIN loga_incidents i
-             ON i.level = 'address' AND r.ip = i.target AND r.ts >= i.start_ts AND r.ts < i.end_ts
-           WHERE {filter}
+           FROM r JOIN loga_incident_minutes i ON i.level = 'address' AND r.ip = i.target AND r.m = i.m
            UNION ALL
            SELECT i.incident_id, r.ip, r.path, r.raw_request, r.status, r.ua_id, r.bot_verify,
                   r.ts_local, r.asn_org
-           FROM requests r JOIN loga_incidents i
-             ON i.level = 'network' AND r.ip_net = i.target AND r.ts >= i.start_ts AND r.ts < i.end_ts
-           WHERE {filter}
+           FROM r JOIN loga_incident_minutes i ON i.level = 'network' AND r.ip_net = i.target AND r.m = i.m
            UNION ALL
            SELECT i.incident_id, r.ip, r.path, r.raw_request, r.status, r.ua_id, r.bot_verify,
                   r.ts_local, r.asn_org
-           FROM requests r JOIN loga_incidents i
-             ON i.level = 'provider' AND 'AS' || CAST(r.asn AS VARCHAR) = i.target
-                AND r.ts >= i.start_ts AND r.ts < i.end_ts
-           WHERE {filter}
+           FROM r JOIN loga_incident_minutes i ON i.level = 'provider' AND r.provider = i.target AND r.m = i.m
            UNION ALL
            SELECT i.incident_id, r.ip, r.path, r.raw_request, r.status, r.ua_id, r.bot_verify,
                   r.ts_local, r.asn_org
-           FROM requests r JOIN (SELECT * FROM loga_incidents WHERE level = 'site') i
-             ON r.ts >= i.start_ts AND r.ts < i.end_ts
-           WHERE {filter};"
+           FROM r JOIN (SELECT * FROM loga_incident_minutes WHERE level = 'site') i ON r.m = i.m;"
     ))?;
 
     scope.notes.push(format!(

@@ -33,8 +33,17 @@ const allSelected = computed(() => targets.value.length > 0 && targets.value.eve
 
 watch(
   () => props.table,
-  () => (selected.value = new Set()),
+  () => {
+    selected.value = new Set()
+    preview.value = null
+  },
 )
+// A different selection needs a new list; rebuild it in the style last chosen.
+watch(selected, () => {
+  if (!preview.value) return
+  if (selected.value.size === 0) preview.value = null
+  else void buildBlockList(preview.value.style)
+})
 
 function toggle(target: Cell) {
   if (typeof target !== 'string') return
@@ -47,28 +56,28 @@ function toggleAll() {
   selected.value = allSelected.value ? new Set() : new Set(targets.value)
 }
 
-async function copyBlockList(style: 'plain' | 'nginx' | 'apache') {
+type BlockStyle = 'plain' | 'nginx' | 'apache'
+const styleNames: Record<BlockStyle, string> = { plain: 'Plain list', nginx: 'nginx deny', apache: 'Apache Require' }
+const preview = ref<{ style: BlockStyle; text: string; entries: number; leftOut: string[] } | null>(null)
+
+/** Builds the list in the engine and shows it, so it can be read before use. */
+async function buildBlockList(style: BlockStyle) {
   try {
     const list = await api.formatBlockList(state.slug, [...selected.value], style)
-    if (list.entries === 0) {
-      toast.add({
-        title: 'Nothing to copy',
-        description: 'Everything selected is a verified bot or one of the server\'s own addresses, and those are never put in a block list.',
-        color: 'warning',
-      })
-      return
-    }
-    await navigator.clipboard.writeText(list.text)
-    const skipped = list.left_out.length
-    toast.add({
-      title: `Copied ${list.entries} ${list.entries === 1 ? 'entry' : 'entries'}`,
-      description: skipped
-        ? `Left out ${skipped} verified bot or server ${skipped === 1 ? 'address' : 'addresses'}: ${list.left_out.slice(0, 4).join(', ')}${skipped > 4 ? '…' : ''}`
-        : 'Check the list before using it. Busy is not the same as hostile.',
-      color: skipped ? 'warning' : 'success',
-    })
+    preview.value = { style, text: list.text, entries: list.entries, leftOut: list.left_out }
   } catch (e) {
-    toast.add({ title: 'Could not copy the block list', description: errorMessage(e), color: 'error' })
+    preview.value = null
+    toast.add({ title: 'Could not build the block list', description: errorMessage(e), color: 'error' })
+  }
+}
+
+async function copyPreview() {
+  if (!preview.value) return
+  try {
+    await navigator.clipboard.writeText(preview.value.text)
+    toast.add({ title: `Copied ${preview.value.entries} ${preview.value.entries === 1 ? 'entry' : 'entries'}`, color: 'success' })
+  } catch (e) {
+    toast.add({ title: 'Could not copy. Select the text and copy it by hand.', description: errorMessage(e), color: 'error' })
   }
 }
 
@@ -154,11 +163,40 @@ const hasNext = computed(() => last.value < props.table.total_rows)
       v-if="selected.size > 0"
       class="flex flex-wrap items-center gap-2 border-b border-default bg-primary/8 px-4 py-2 text-xs"
     >
-      <span class="font-medium text-highlighted">{{ selected.size }} selected. Copy as a block list:</span>
-      <UButton label="Plain list" size="xs" color="neutral" variant="outline" @click="copyBlockList('plain')" />
-      <UButton label="nginx deny" size="xs" color="neutral" variant="outline" @click="copyBlockList('nginx')" />
-      <UButton label="Apache Require" size="xs" color="neutral" variant="outline" @click="copyBlockList('apache')" />
+      <span class="font-medium text-highlighted">{{ selected.size }} selected. Make a block list:</span>
+      <UButton
+        v-for="(name, style) in styleNames"
+        :key="style"
+        :label="name"
+        size="xs"
+        :color="preview?.style === style ? 'primary' : 'neutral'"
+        :variant="preview?.style === style ? 'solid' : 'outline'"
+        @click="buildBlockList(style)"
+      />
       <UButton label="Clear selection" size="xs" color="neutral" variant="link" @click="selected = new Set()" />
+    </div>
+
+    <div v-if="preview" class="border-b border-default bg-elevated/50 px-4 py-3">
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <p class="text-xs text-muted">
+          <span class="font-medium text-highlighted">{{ preview.entries }} {{ preview.entries === 1 ? 'entry' : 'entries' }}.</span>
+          <template v-if="preview.leftOut.length">
+            Left out {{ preview.leftOut.length }} verified bot or server
+            {{ preview.leftOut.length === 1 ? 'address' : 'addresses' }}:
+            {{ preview.leftOut.slice(0, 4).join(', ') }}{{ preview.leftOut.length > 4 ? '…' : '' }}.
+          </template>
+          Read it before using it: busy is not the same as hostile.
+        </p>
+        <UButton icon="i-lucide-copy" label="Copy" size="xs" :disabled="preview.entries === 0" @click="copyPreview" />
+      </div>
+      <pre
+        v-if="preview.entries > 0"
+        class="mt-2 max-h-48 overflow-auto rounded-md border border-default bg-default p-3 font-mono text-xs leading-5 text-highlighted select-all"
+        >{{ preview.text }}</pre
+      >
+      <p v-else class="mt-2 text-xs text-muted">
+        Everything selected is a verified bot or one of the server's own addresses, and those never go in a block list.
+      </p>
     </div>
 
     <div class="max-h-[32rem] overflow-auto" :class="{ 'opacity-60': loading }">
