@@ -2,7 +2,7 @@
 
 The single list of what is done and what is left. Update it in the same commit as the work: tick the item, move it if priorities change, and add anything new that comes up. The design behind each item is in [spec.md](spec.md); section numbers below refer to it.
 
-Last updated: 2026-11-16, at commit `eb641fc`.
+Last updated: 2026-11-16. The history was rewritten that day, so commit hashes quoted anywhere before then no longer exist.
 
 ## Where things stand
 
@@ -14,21 +14,22 @@ Last updated: 2026-11-16, at commit `eb641fc`.
 ## Next up, in order
 
 - [ ] **Data-centre browsers in Undeclared** (6.2.5). Now that ASN lookup exists, flag browser user agents coming from hosting providers at volume. Needs a way to tell hosting ASNs from access ISPs; decide that first.
-- [ ] **Custom log formats** (4.1): "combined + extras" (request time, vhost, forwarded IP) and user-supplied nginx `log_format` / Apache `LogFormat` strings, set per site. **Blocked on the owner** supplying sample logs in a non-default format and a cPanel domlog.
+- [ ] **Custom log formats** (4.1): "combined + extras" (request time, vhost, forwarded IP) and user-supplied nginx `log_format` / Apache `LogFormat` strings, set per site. **Blocked on the owner** supplying a sample log in a non-default format. (A cPanel/WHM monthly archive has been supplied: it is plain combined format with IPv4 and IPv6 clients, so cPanel needs nothing custom.)
 - [ ] **Proxy / CDN detection** (4.2): detect logs that record Cloudflare's address instead of the visitor's, and use a forwarded-IP field when the format has one. Depends on custom formats.
 - [ ] **SEO crawl reports** (6.4): crawled URLs, crawl frequency, errors and redirects seen by bots, inconsistent responses, crawl waste, housekeeping fetches, Googlebot smartphone vs desktop. The owner wants SEO as a secondary audience, so this matters for positioning.
 - [ ] **Known URLs** (6.4): fetch a sitemap or import a URL list, then "uncrawled" and "orphan" reports. The `known_urls` table exists and is unused.
 - [ ] **Release workflow** (13): GitHub Actions that builds installers for Windows, macOS and Linux on a tag and attaches them to a GitHub release.
-- [ ] **Updater**: Tauri's updater plugin, checking GitHub releases. Needs the repository public and a signing key pair (the private key is the owner's to hold). Must stay opt-in: the app promises to make no requests the user did not start.
+- [ ] **Code signing with SignPath Foundation** (decided): free signing for open source projects. Needs the repository public, a code signing policy page carrying their attribution line, multi-factor authentication on GitHub and SignPath, and signing requests that come from the release workflow. It may also need a release to exist already; check signpath.org/terms. Until approved, releases go out unsigned.
+- [ ] **Updater**: Tauri's updater plugin, checking GitHub releases. Needs the repository public and an update signing key pair (separate from code signing; the private key is the owner's to hold). Decided: a "Check for updates" button in Settings and no automatic check, because the app promises to make no requests the user did not start.
 - [ ] **Server version**: an HTTP server exposing the same operations, serving the same frontend, with login (password first, then OpenID Connect) and a read-only API with tokens. Reads logs only from configured folders. The spec lists this as a non-goal and needs changing when work starts.
 - [ ] **API / MCP for AIdata**: comes almost free with the server version. Until then AIdata can call the `logloupe` binary and read its JSON.
 
 ## Waiting on the owner
 
-- [ ] Sample logs: a custom nginx `log_format`, and a cPanel domlog.
-- [ ] Decide whether to squash commit `7eca532`, which does not compile (fixed by `8f6ff0a`). Needs a force-push.
-- [ ] Decide when the repository goes public. Before that, have someone other than the author re-read it for client-identifying strings (two rounds of clean-up were needed already).
-- [ ] Code signing: unsigned installers trigger a SmartScreen warning for anyone who downloads them. Needs a paid certificate; macOS needs an Apple Developer account.
+- [ ] Sample log in a custom nginx `log_format`.
+- [ ] Make the repository public. The re-read is done (see Done, Project). Two things first: GitHub can still serve the pre-rewrite commits to anyone who knows a hash until it garbage-collects them, so either delete and re-create the repository or ask GitHub support to purge them; and the website folder and its product brief have not been re-read.
+- [ ] Turn on multi-factor authentication for GitHub (SignPath requires it).
+- [ ] macOS signing needs an Apple Developer account; undecided.
 - [ ] Confirm in the installed app: the second launch brings the window to the front (single-instance), and data moved across after the rename.
 
 ## Not yet verified
@@ -105,6 +106,8 @@ Things built and tested in the engine or from the command line, but not exercise
 
 - [x] Security audit and fixes (site-name validation, read-only report connections without external access, CSV formula guarding, prefix sanity checks)
 - [x] Client-identifying strings removed from code, tests and history
+- [x] Independent re-read against the real logs (every committed line compared with the addresses, hostnames, paths, user agents and account names in `samples/`). It found one log's size, row count and timestamps in the browser preview data, and a real address in an early version of the log generator; both were replaced throughout the history
+- [x] The commit that did not compile was folded into its fix, so every commit in the history is one that was meant to build
 - [x] Renamed to Logloupe; MIT licence; GitHub organisation and private repository; logloupe.com registered
 - [x] CI on Windows, macOS and Linux: format, clippy, tests
 - [x] Synthetic log generator with a burst, fake bots and a query-string loop, using only documentation address ranges for anything accused
