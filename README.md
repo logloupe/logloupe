@@ -1,8 +1,21 @@
 # Logloupe (`logloupe`)
 
-Analyses web server access logs: traffic sources, bots, abuse and crawl problems. One Rust engine (`crates/core`) with a command-line front end (`crates/cli`); a desktop app comes later. The full design is in [spec.md](spec.md).
+Analyses web server access logs: traffic sources, bots, abuse and crawl problems. It checks crawlers against the IP ranges their operators publish and against reverse DNS, so a real Googlebot can be told from something pretending to be one, finds bursts of traffic and what caused them, and writes block lists for nginx and Apache. Everything stays on your machine.
 
-Status: **Phase 1 in progress.** Working today: site management, ingest of plain and gzip combined-format logs, de-duplication, daily rollups, and the traffic reports (overview, sources, campaigns, landing pages, AI referrals).
+One Rust engine (`crates/core`) with a command-line tool (`crates/cli`) and a desktop app (`crates/app`). The full design is in [spec.md](spec.md), and what is done and what is left is in [TODO.md](TODO.md).
+
+Status: **early release.** Working today: ingest of plain and gzip combined-format logs (nginx, Apache, cPanel), de-duplication, traffic, bot and abuse reports, bot verification, country and network lookup, and block lists. Not built yet: custom log formats and the SEO crawl reports. The desktop app is only built for Windows so far.
+
+## Download and install
+
+Releases are on the [releases page](https://github.com/logloupe/logloupe/releases).
+
+- **Desktop app (Windows 10 and 11):** download `Logloupe_<version>_x64-setup.exe` and run it. It installs for the current user and needs no administrator rights.
+- **Command-line tool (Windows, Linux, macOS on Apple silicon):** download the archive for your system, unpack it and put `logloupe` somewhere on your `PATH`.
+
+The installer is not signed yet, so Windows SmartScreen says "Windows protected your PC" the first time. Choose **More info**, then **Run anyway**. Each release has a `SHA256SUMS.txt` to check the download against (`certutil -hashfile <file> SHA256`).
+
+To update, run a newer installer over the old one; your data is kept. To remove the app, use **Settings > Apps > Installed apps > Logloupe > Uninstall**. Sites and settings live in `%APPDATA%\logloupe` and stay there unless you delete that folder too.
 
 ## Quick start
 
@@ -68,6 +81,17 @@ IP geolocation by [DB-IP](https://db-ip.com), used under its Creative Commons At
 - **Site names are validated** wherever they are used, so a name such as `../other` cannot make the tool open or delete a file outside the data directory.
 - **Published IP lists are checked before use**: a fetched list is refused if it is too short, fails to parse, or contains a prefix broader than a /8 (IPv4) or /16 (IPv6). Meta's ranges come from a whois query, which is not encrypted or authenticated; someone able to tamper with that connection could get addresses wrongly marked as verified Meta bots (they could not get anything marked fake, and the breadth check limits how much they could add).
 - **Dependency audits** (`cargo audit`, `pnpm audit`) on 2026-11-15 reported no known vulnerabilities in what ships. They flagged two advisories in Tauri's Linux GTK stack (`glib` unsoundness, `proc-macro-error` unmaintained) and one low-severity issue in `esbuild` that affects only the development server.
+
+## Code signing policy
+
+Releases are built by GitHub Actions from the tagged source in this repository ([release.yml](.github/workflows/release.yml)); nothing is built or altered by hand.
+
+The Windows installer is **not signed yet**. The project intends to apply to the [SignPath Foundation](https://signpath.org) programme for open source projects, and this section will be updated when signing starts.
+
+- Committers and reviewers: [robwent](https://github.com/robwent)
+- Approvers: [robwent](https://github.com/robwent)
+
+Privacy policy: this program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it. The requests it can make are listed under "Security and privacy notes" above; each one is started by the user or can be switched off.
 
 ## Building
 

@@ -1,0 +1,138 @@
+name: Release
+
+# Pushing a tag such as v0.1.0 builds the Windows installer and the
+# command-line tool for Windows, Linux and macOS, and attaches them to a draft
+# GitHub release. The draft is published by hand once the files are checked.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  GH_TOKEN: ${{ github.token }}
+  TAG: ${{ github.ref_name }}
+
+jobs:
+  draft:
+    name: create the draft release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # The tag, the workspace version and the app version must all agree, or
+      # the installer would carry a different version from the release.
+      - name: Check the tag matches the version
+        id: version
+        run: |
+          version="${TAG#v}"
+          cargo_version=$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)
+          app_version=$(grep -m1 '"version":' crates/app/src-tauri/tauri.conf.json | cut -d'"' -f4)
+          if [ "$version" != "$cargo_version" ] || [ "$version" != "$app_version" ]; then
+            echo "::error::Tag $TAG, Cargo.toml ($cargo_version) and tauri.conf.json ($app_version) disagree."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Create the draft release
+        run: |
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            echo "Release $TAG already exists; files will be replaced."
+          else
+            sed "s/<version>/${TAG#v}/g" .github/release-notes.md > notes.md
+            gh release create "$TAG" --draft --verify-tag \
+              --title "Logloupe ${TAG#v}" \
+              --notes-file notes.md
+          fi
+
+  windows:
+    name: Windows installer and command-line tool
+    needs: draft
+    runs-on: windows-latest
+    env:
+      VERSION: ${{ needs.draft.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: crates/app/pnpm-lock.yaml
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install frontend dependencies
+        working-directory: crates/app
+        run: pnpm install --frozen-lockfile
+
+      # Builds the frontend, the app and the per-user setup program.
+      - name: Build the installer
+        working-directory: crates/app
+        run: pnpm tauri build --bundles nsis
+
+      - name: Build the command-line tool
+        run: cargo build --release -p logloupe
+
+      - name: Package and upload
+        shell: bash
+        run: |
+          mkdir out
+          cp target/release/bundle/nsis/*-setup.exe out/
+          mkdir cli
+          cp target/release/logloupe.exe LICENSE README.md cli/
+          (cd cli && 7z a -tzip "../out/logloupe-cli-${VERSION}-windows-x64.zip" . > /dev/null)
+          ls -l out
+          gh release upload "$TAG" out/* --clobber
+
+  cli:
+    name: command-line tool (${{ matrix.label }})
+    needs: draft
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The oldest Ubuntu runner, so the binary also runs on older servers.
+          - os: ubuntu-22.04
+            label: linux-x64
+          - os: macos-latest
+            label: macos-arm64
+    runs-on: ${{ matrix.os }}
+    env:
+      VERSION: ${{ needs.draft.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build the command-line tool
+        run: cargo build --release -p logloupe
+
+      - name: Package and upload
+        run: |
+          mkdir cli
+          cp target/release/logloupe LICENSE README.md cli/
+          tar -czf "logloupe-cli-${VERSION}-${{ matrix.label }}.tar.gz" -C cli .
+          gh release upload "$TAG" "logloupe-cli-${VERSION}-${{ matrix.label }}.tar.gz" --clobber
+
+  checksums:
+    name: checksums
+    needs: [windows, cli]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Write SHA256SUMS.txt for every file on the release
+        run: |
+          mkdir files && cd files
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY"
+          rm -f SHA256SUMS.txt
+          sha256sum * > ../SHA256SUMS.txt
+          cat ../SHA256SUMS.txt
+          gh release upload "$TAG" ../SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" --clobber
