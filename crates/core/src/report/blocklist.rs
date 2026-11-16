@@ -18,7 +18,7 @@ pub enum Style {
     Plain,
     /// `deny 203.0.113.7;`
     Nginx,
-    /// `Require not ip 203.0.113.7`, for use inside `<RequireAll>`.
+    /// A `<RequireAll>` block with one `Require not ip` line per entry.
     Apache,
 }
 
@@ -142,13 +142,21 @@ pub fn format(entries: &[String], style: Style) -> Result<String> {
         sorted.insert(parsed);
     }
     let mut out = String::new();
+    // Apache only accepts a negative Require inside <RequireAll>, alongside a
+    // positive one, so the list is written as a block that works as pasted.
+    if style == Style::Apache && !sorted.is_empty() {
+        out.push_str("<RequireAll>\n    Require all granted\n");
+    }
     for (_, _, text) in &sorted {
         match style {
             Style::Plain => out.push_str(text),
             Style::Nginx => out.push_str(&format!("deny {text};")),
-            Style::Apache => out.push_str(&format!("Require not ip {text}")),
+            Style::Apache => out.push_str(&format!("    Require not ip {text}")),
         }
         out.push('\n');
+    }
+    if style == Style::Apache && !sorted.is_empty() {
+        out.push_str("</RequireAll>\n");
     }
     Ok(out)
 }
@@ -206,10 +214,11 @@ mod tests {
             "deny 203.0.113.9;\ndeny 2001:db8:1::/48;\n"
         );
         assert_eq!(
-            list(&["198.51.100.0/24"], Style::Apache).unwrap(),
-            "Require not ip 198.51.100.0/24\n"
+            list(&["198.51.100.0/24", "203.0.113.9"], Style::Apache).unwrap(),
+            "<RequireAll>\n    Require all granted\n    Require not ip 198.51.100.0/24\n    Require not ip 203.0.113.9\n</RequireAll>\n"
         );
         assert_eq!(list(&[], Style::Plain).unwrap(), "");
+        assert_eq!(list(&[], Style::Apache).unwrap(), "");
     }
 
     #[test]
