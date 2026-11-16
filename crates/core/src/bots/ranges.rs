@@ -104,7 +104,7 @@ struct RangeFile {
     prefixes: Vec<StoredPrefix>,
 }
 
-fn day_number(date: NaiveDate) -> i64 {
+pub(crate) fn day_number(date: NaiveDate) -> i64 {
     date.signed_duration_since(NaiveDate::from_ymd_opt(1970, 1, 1).expect("valid date"))
         .num_days()
 }

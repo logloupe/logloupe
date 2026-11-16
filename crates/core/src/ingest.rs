@@ -47,6 +47,8 @@ pub struct IngestOptions {
     pub force: bool,
     /// Overrides the site's overlap policy for this run.
     pub overlap: Option<OverlapPolicy>,
+    /// Run reverse DNS checks afterwards for bots that IP ranges cannot settle.
+    pub dns: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -128,6 +130,16 @@ pub fn ingest(
     let mut reports = Vec::with_capacity(paths.len());
     for path in paths {
         reports.push(ingest_file(store, path, opts, &ctx, progress, cancel)?);
+    }
+
+    if opts.dns && reports.iter().any(|r| r.rows_ok > 0) {
+        // A DNS problem must not fail an ingest that has already succeeded.
+        let _ = bots::rdns::apply(
+            store,
+            &ctx.registry,
+            &bots::rdns::SystemResolver,
+            chrono::Utc::now().date_naive(),
+        );
     }
 
     if let Retention::Days(days) = settings.retention {

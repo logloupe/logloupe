@@ -22,6 +22,8 @@ export const state = reactive({
   userAgent: '',
   country: '',
   asn: '',
+  /** Check bots by reverse DNS too. On unless switched off in Settings. */
+  dns: localStorage.getItem('logloupe.dns') !== 'false',
   /** Bumped to make open reports reload. */
   revision: 0,
   /** An ingest or other long write is running; reports cannot open the site. */

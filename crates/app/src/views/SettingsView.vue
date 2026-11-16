@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // Settings: the cached bot IP ranges, and where the data lives.
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { api, errorMessage, type GeoStatus, type RangeStatus } from '../api'
 import { formatBytes, formatNumber, formatUtc } from '../format'
 import { loadSites, refreshReports, state } from '../state'
@@ -48,7 +48,7 @@ async function recheck() {
   rechecking.value = true
   state.busy = true
   try {
-    const r = await api.reenrichSite(state.slug)
+    const r = await api.reenrichSite(state.slug, state.dns)
     toast.add({
       title: `Re-checked bots in ${state.slug}`,
       description: `${formatNumber(r.verified)} verified, ${formatNumber(r.fake)} fake, ${formatNumber(r.unverifiable)} unverifiable.`,
@@ -80,6 +80,11 @@ async function updateGeo() {
     geoUpdating.value = false
   }
 }
+
+watch(
+  () => state.dns,
+  (on) => localStorage.setItem('logloupe.dns', String(on)),
+)
 
 onMounted(load)
 </script>
@@ -139,6 +144,18 @@ onMounted(load)
         Retired prefixes are kept with the date they left the published list, so older logs are judged against what was
         published at the time.
       </footer>
+    </section>
+
+    <section class="flex items-center justify-between gap-6 rounded-lg border border-default bg-default p-4">
+      <div>
+        <h2 class="text-sm font-semibold text-highlighted">Reverse DNS checks</h2>
+        <p class="text-xs text-muted">
+          Some operators, such as Amazon, Yandex and Baidu, publish no IP list. Their bots can only be verified by
+          looking up each address's reverse name and confirming it points back. This sends those addresses to your DNS
+          resolver. Results are kept for 30 days.
+        </p>
+      </div>
+      <USwitch v-model="state.dns" aria-label="Reverse DNS checks" />
     </section>
 
     <section v-if="geo" class="rounded-lg border border-default bg-default">

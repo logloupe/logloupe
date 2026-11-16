@@ -315,9 +315,14 @@ async fn compact_site(state: State<'_, AppState>, slug: String) -> CommandResult
 }
 
 #[tauri::command]
-async fn reenrich_site(state: State<'_, AppState>, slug: String) -> CommandResult<ReenrichResult> {
+async fn reenrich_site(
+    state: State<'_, AppState>,
+    slug: String,
+    dns: bool,
+) -> CommandResult<ReenrichResult> {
     let (dir, opts) = (state.dir.clone(), state.opts.clone());
-    blocking(move || maintain::reenrich(&Store::open(&dir, &slug, Mode::ReadWrite, &opts)?)).await
+    blocking(move || maintain::reenrich(&Store::open(&dir, &slug, Mode::ReadWrite, &opts)?, dns))
+        .await
 }
 
 #[tauri::command]

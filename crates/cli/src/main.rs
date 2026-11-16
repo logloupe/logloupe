@@ -55,6 +55,9 @@ struct Global {
     /// Never fetch anything: use only the cached bot IP ranges
     #[arg(long, global = true)]
     offline: bool,
+    /// Check bots by reverse DNS as well (looks up addresses with your DNS resolver)
+    #[arg(long, global = true)]
+    dns: bool,
 }
 
 #[derive(Subcommand)]
@@ -335,6 +338,7 @@ struct App {
     quiet: bool,
     json: bool,
     offline: bool,
+    dns: bool,
 }
 
 impl App {
@@ -393,6 +397,7 @@ fn run(cli: Cli, json: bool) -> Result<()> {
         quiet: cli.global.quiet,
         json,
         offline: cli.global.offline,
+        dns: cli.global.dns && !cli.global.offline,
     };
     match cli.command {
         Command::Site(command) => site(&app, command),
@@ -614,10 +619,8 @@ fn run_ingest(app: &App, args: IngestArgs) -> Result<()> {
         format: (args.format != "auto").then(|| args.format.clone()),
         force: args.force,
         overlap: args.overlap.as_deref().map(str::parse).transpose()?,
+        dns: app.dns && !args.no_dns,
     };
-    // Reverse DNS arrives with bot verification; the flag is accepted now so
-    // scripts written against the spec keep working.
-    let _ = args.no_dns;
 
     refresh_ranges(app);
     let mut store = app.open(&args.slug, Mode::ReadWrite)?;
@@ -1045,7 +1048,7 @@ fn ranges(app: &App, command: RangesCommand) -> Result<()> {
 fn reenrich(app: &App, slug: &str) -> Result<()> {
     refresh_ranges(app);
     let store = app.open(slug, Mode::ReadWrite)?;
-    let result = maintain::reenrich(&store)?;
+    let result = maintain::reenrich(&store, app.dns)?;
     if app.json {
         app.emit(&json!({ "site": slug, "result": result }));
     } else {
@@ -1063,6 +1066,21 @@ fn reenrich(app: &App, slug: &str) -> Result<()> {
                 "No geo database installed (run `logloupe geo update`).".to_owned()
             }
         );
+        match result.dns {
+            Some(dns) => println!(
+                "Reverse DNS: {} addresses needed checking, {} looked up now, {} confirmed, {} got no answer{}.",
+                number(dns.addresses),
+                number(dns.looked_up),
+                number(dns.confirmed),
+                number(dns.failed),
+                if dns.deferred > 0 {
+                    format!(", {} left for the next run", number(dns.deferred))
+                } else {
+                    String::new()
+                }
+            ),
+            None => app.note("Reverse DNS checks were not run. Add --dns to verify bots that publish no IP list."),
+        }
     }
     Ok(())
 }

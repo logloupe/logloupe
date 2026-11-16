@@ -95,7 +95,7 @@ const compact = () =>
 
 const reenrich = () =>
   perform('Re-check', async () => {
-    const r = await api.reenrichSite(state.slug)
+    const r = await api.reenrichSite(state.slug, state.dns)
     return `Bot requests: ${formatNumber(r.verified)} verified, ${formatNumber(r.fake)} fake, ${formatNumber(r.unverifiable)} unverifiable`
   })
 

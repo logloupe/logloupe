@@ -1,6 +1,7 @@
 //! Bot registry and verification against published IP ranges (spec 5.1).
 
 pub mod ranges;
+pub mod rdns;
 pub mod registry;
 
 pub use ranges::{Assessment, Ranges, UpdateOutcome, Verdict};

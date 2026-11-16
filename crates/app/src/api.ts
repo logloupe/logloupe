@@ -160,6 +160,7 @@ export interface IngestOptions {
   format?: string | null
   force?: boolean
   overlap?: 'error' | 'skip' | 'allow' | null
+  dns?: boolean
 }
 
 export interface IngestProgress {
@@ -226,6 +227,7 @@ export interface ReenrichResult {
   fake: number
   unverifiable: number
   addresses_located: number
+  dns: { addresses: number; looked_up: number; failed: number; deferred: number; confirmed: number } | null
 }
 
 export const api = {
@@ -251,7 +253,7 @@ export const api = {
   clearSite: (slug: string) => call<void>('clear_site', { slug }),
   compactSite: (slug: string) =>
     call<{ bytes_before: number; bytes_after: number }>('compact_site', { slug }),
-  reenrichSite: (slug: string) => call<ReenrichResult>('reenrich_site', { slug }),
+  reenrichSite: (slug: string, dns: boolean) => call<ReenrichResult>('reenrich_site', { slug, dns }),
   rangesStatus: () => call<RangeStatus[]>('ranges_status'),
   rangesUpdate: () => call<UpdateOutcome[]>('ranges_update'),
   geoStatus: () => call<GeoStatus>('geo_status'),

@@ -12,7 +12,10 @@
 #           or whois://<server>/<query> for the routes a network announces
 # min_prefixes: a fetched set with fewer prefixes than this is rejected.
 # extra_ranges: networks registered to the operator that its lists leave out.
-# rdns:     forward-confirmed reverse DNS suffixes (not used yet).
+# rdns:     reverse DNS suffixes. With DNS checks on, an address whose reverse
+#           name ends in one of these, and whose name resolves back to it, is
+#           verified. For an operator with no range_urls, an address that fails
+#           the check is fake, so only list suffixes the operator documents.
 
 [[operator]]
 key = "google"
@@ -128,7 +131,8 @@ bots = [
 ]
 
 # Operators below publish no list in the supported shape (or none that could
-# be confirmed), so their bots are `unverifiable` until reverse DNS is wired in.
+# be confirmed). Those with `rdns` suffixes are verified by reverse DNS when
+# DNS checks are on; the rest are `unverifiable`.
 
 [[operator]]
 key = "amazon"

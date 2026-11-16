@@ -52,7 +52,7 @@ async function start(overlap: 'skip' | 'allow' | null = null) {
   progress.value = null
   localStorage.setItem('logloupe.offline', String(offline.value))
   try {
-    const outcome = await api.ingestFiles(state.slug, queued.value, { force: force.value, overlap }, offline.value)
+    const outcome = await api.ingestFiles(state.slug, queued.value, { force: force.value, overlap, dns: state.dns && !offline.value }, offline.value)
     results.value = outcome.files
     notes.value = outcome.range_notes
     queued.value = []

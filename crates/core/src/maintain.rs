@@ -399,13 +399,23 @@ pub struct ReenrichResult {
     /// Distinct addresses looked up for country and network; 0 when no geo
     /// database is installed.
     pub addresses_located: u64,
+    /// Reverse DNS checks, when they were asked for.
+    pub dns: Option<crate::bots::rdns::DnsOutcome>,
 }
 
 /// Re-runs user-agent classification and bot verification over the stored
 /// rows with the current registry and range cache, then rebuilds the rollups.
 /// Used after the registry or the ranges change, and for rows ingested before
 /// verification existed.
-pub fn reenrich(store: &Store) -> Result<ReenrichResult> {
+pub fn reenrich(store: &Store, dns: bool) -> Result<ReenrichResult> {
+    reenrich_with(store, dns.then_some(&crate::bots::rdns::SystemResolver))
+}
+
+/// [`reenrich`] with a chosen DNS resolver (`None` for no DNS checks).
+pub fn reenrich_with(
+    store: &Store,
+    resolver: Option<&dyn crate::bots::rdns::Resolver>,
+) -> Result<ReenrichResult> {
     use crate::bots::{self, Ranges, Registry};
     use std::collections::HashMap;
     use std::net::IpAddr;
@@ -565,10 +575,29 @@ pub fn reenrich(store: &Store) -> Result<ReenrichResult> {
             fake: count("fake")?,
             unverifiable: count("unverifiable")?,
             addresses_located: located,
+            dns: None,
         })
     })();
     conn.execute_batch(if result.is_ok() { "COMMIT" } else { "ROLLBACK" })?;
-    result
+    let mut result = result?;
+
+    // Reverse DNS has the last word: it can confirm an address the ranges
+    // missed, and it is the only check for operators that publish none.
+    if let Some(resolver) = resolver {
+        let today = chrono::Utc::now().date_naive();
+        result.dns = Some(crate::bots::rdns::apply(store, &registry, resolver, today)?);
+        let count = |verdict: &str| -> Result<u64> {
+            Ok(conn.query_row(
+                "SELECT count(*) FROM requests WHERE bot_verify = ?",
+                params![verdict],
+                |row| row.get(0),
+            )?)
+        };
+        result.verified = count("verified")?;
+        result.fake = count("fake")?;
+        result.unverifiable = count("unverifiable")?;
+    }
+    Ok(result)
 }
 
 #[cfg(test)]
