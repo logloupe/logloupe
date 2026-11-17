@@ -8,7 +8,8 @@ Last updated: 2026-11-16. The history was rewritten that day, so commit hashes q
 
 - Engine, command-line tool and desktop app all work on Windows. CI passes on Windows, macOS and Linux (build and tests only; the app has never been opened on macOS or Linux).
 - The owner uses the installed app on real client logs.
-- The repository is `logloupe/logloupe` on GitHub, **private**. Nothing is released. The website at logloupe.com is a "coming soon" page built in a separate session.
+- The repository is `logloupe/logloupe` on GitHub, **public** since 2026-11-17. Release 0.1.0 was published on 2026-11-17 after the owner installed it over the previous copy and confirmed the data was kept. It is unsigned. The website at logloupe.com is built in a separate session.
+- The project lives in `C:\log-analyser`. It was moved off the USB drive `D:` on 2026-11-17 after that drive kept disconnecting; the old copy on `D:` is stale.
 - 79 tests, all passing. `cargo clippy` is clean with warnings as errors.
 
 ## Next up, in order
@@ -20,6 +21,7 @@ Last updated: 2026-11-16. The history was rewritten that day, so commit hashes q
 - [ ] **Known URLs** (6.4): fetch a sitemap or import a URL list, then "uncrawled" and "orphan" reports. The `known_urls` table exists and is unused.
 - [ ] **Desktop app for macOS and Linux in releases** (13): the release workflow builds the Windows installer and the command-line tool for Windows, Linux x64 and macOS arm64. The app has never been opened on macOS or Linux, so it is not shipped there; an unsigned macOS app also needs first-launch instructions. No Intel macOS command-line build either.
 - [ ] **Code signing with SignPath Foundation** (decided, cannot apply yet): free signing for open source projects. Their terms require the project to be already released in the form to be signed, and the application form (signpath.org/apply) has a required "Reputation" field: links showing the project is widely used or trusted (download statistics, GitHub insights, coverage, discussions), plus a project name that a web search clearly identifies. So: release unsigned, build up some evidence of use, then apply. Also needed then: the attribution line "Free code signing provided by SignPath.io, certificate by SignPath Foundation" in the README's code signing policy and on the download page, multi-factor authentication on GitHub and SignPath, and a signing step in the release workflow that the owner approves per release. The form asks for name and email for the SignPath account, and has a reCAPTCHA, so the owner submits it.
+- [ ] **Faster release builds**: the first release run took 1 h 24 min. On Windows the installer step took 44 minutes and the command-line step after it another 37, which means DuckDB was compiled twice; find out why the second `cargo build -p logloupe` does not reuse the first build (different features or environment under `tauri build`) and build both in one pass. The build cache is also not shared between tags.
 - [ ] **Updater**: Tauri's updater plugin, checking GitHub releases. Needs the repository public and an update signing key pair (separate from code signing; the private key is the owner's to hold). Decided: a "Check for updates" button in Settings and no automatic check, because the app promises to make no requests the user did not start.
 - [ ] **Server version**: an HTTP server exposing the same operations, serving the same frontend, with login (password first, then OpenID Connect) and a read-only API with tokens. Reads logs only from configured folders. The spec lists this as a non-goal and needs changing when work starts.
 - [ ] **API / MCP for AIdata**: comes almost free with the server version. Until then AIdata can call the `logloupe` binary and read its JSON.
@@ -27,8 +29,8 @@ Last updated: 2026-11-16. The history was rewritten that day, so commit hashes q
 ## Waiting on the owner
 
 - [ ] Sample log in a custom nginx `log_format`.
-- [ ] Make the repository public. The re-read is done (see Done, Project). Two things first: GitHub can still serve the pre-rewrite commits to anyone who knows a hash until it garbage-collects them, so either delete and re-create the repository or ask GitHub support to purge them; and the website folder and its product brief have not been re-read.
-- [ ] Turn on multi-factor authentication for GitHub (SignPath requires it).
+- [ ] Submit the SignPath application at signpath.org/apply (it needs the owner's name and email and has a reCAPTCHA). Expect questions about reputation: the project is new and has little evidence of use to cite.
+- [ ] The website folder and its product brief have not been re-read for client-identifying strings.
 - [ ] macOS signing needs an Apple Developer account; undecided.
 - [ ] Confirm in the installed app: the second launch brings the window to the front (single-instance), and data moved across after the rename.
 
@@ -108,7 +110,7 @@ Things built and tested in the engine or from the command line, but not exercise
 - [x] Client-identifying strings removed from code, tests and history
 - [x] Independent re-read against the real logs (every committed line compared with the addresses, hostnames, paths, user agents and account names in `samples/`). It found one log's size, row count and timestamps in the browser preview data, and a real address in an early version of the log generator; both were replaced throughout the history
 - [x] The commit that did not compile was folded into its fix, so every commit in the history is one that was meant to build
-- [x] Renamed to Logloupe; MIT licence; GitHub organisation and private repository; logloupe.com registered
+- [x] Renamed to Logloupe; MIT licence; GitHub organisation and repository (public since 2026-11-17); logloupe.com registered
 - [x] CI on Windows, macOS and Linux: format, clippy, tests
 - [x] Release workflow: a `v*` tag builds the Windows setup program and the command-line tool for three systems, with checksums, into a draft GitHub release (13)
 - [x] Synthetic log generator with a burst, fake bots and a query-string loop, using only documentation address ranges for anything accused

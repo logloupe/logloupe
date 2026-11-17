@@ -28,4 +28,8 @@ A web server access log analyser: a Rust engine (`crates/core`) with a command-l
 
 ## The website
 
-logloupe.com is built in a separate session in `C:\laragon\www\logloupe`. It works from `PRODUCT-BRIEF.md` in that folder. When something the site describes changes (a feature, an output format it imitates, release status), update the brief and tell that session. Nothing is released yet: no download, and the repository is private.
+logloupe.com is built in a separate session in `C:\laragon\www\logloupe`. It works from `PRODUCT-BRIEF.md` in that folder. When something the site describes changes (a feature, an output format it imitates, release status), update the brief and tell that session. If that session is not running, the brief is how it finds out. The repository is public; check TODO.md for whether a release has been published before telling the site it can offer a download.
+
+## Releases
+
+Pushing a `v*` tag runs `.github/workflows/release.yml`, which builds the Windows installer and the command-line tool and attaches them to a **draft** GitHub release. The tag must match the version in `Cargo.toml` and `crates/app/src-tauri/tauri.conf.json`. A draft is published by hand, after the owner has installed it. Installers are unsigned for now.

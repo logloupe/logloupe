@@ -22,4 +22,8 @@ To remove the app, use **Settings > Apps > Installed apps > Logloupe > Uninstall
 
 To update, download the newer installer and run it over the old one. Your data is kept.
 
-See the [README](https://github.com/logloupe/logloupe#readme) for how to use it, the privacy notes and the code signing policy.
+## Code signing policy
+
+Releases are built by GitHub Actions from the tagged source. The project is applying to the SignPath Foundation programme for open source projects; once approved, releases will carry free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org). The full [code signing policy](https://github.com/logloupe/logloupe#code-signing-policy), with team roles and the privacy statement, is in the README.
+
+See the [README](https://github.com/logloupe/logloupe#readme) for how to use it and the privacy notes.
