@@ -86,9 +86,10 @@ const numeric = (column: Column) => column.type === 'integer' || column.type ===
 function display(column: Column, value: Cell): string {
   if (value === null) return ''
   if (typeof value === 'number') {
-    if (column.key === 'bytes') return formatBytes(value)
+    if (column.key.endsWith('bytes')) return formatBytes(value)
     // Identifiers are not quantities: no thousands separators.
-    if (column.key === 'asn' || column.key === 'status') return String(value)
+    if (column.key === 'asn' || column.key === 'status' || column.key === 'last_status') return String(value)
+    if (column.key === 'share') return `${value.toFixed(1)}%`
     return formatNumber(value)
   }
   return String(value)

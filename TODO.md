@@ -10,15 +10,14 @@ Last updated: 2026-11-17. The history was rewritten on 2026-11-16, so commit has
 - The owner uses the installed app on real client logs.
 - The repository is `logloupe/logloupe` on GitHub, **public** since 2026-11-17. Release 0.1.0 was published on 2026-11-17 after the owner installed it over the previous copy and confirmed the data was kept. It is unsigned. The website at logloupe.com is built in a separate session. SSH fetch was built after 0.1.0 and is not in a release; the website's brief says so.
 - The project lives in `C:\log-analyser`. It was moved off the USB drive `D:` on 2026-11-17 after that drive kept disconnecting; the old copy on `D:` is stale.
-- 93 tests, all passing. `cargo clippy` is clean with warnings as errors.
+- 97 tests, all passing. `cargo clippy` is clean with warnings as errors.
 
 ## Next up, in order
 
 - [ ] **Data-centre browsers in Undeclared** (6.2.5). Now that ASN lookup exists, flag browser user agents coming from hosting providers at volume. Needs a way to tell hosting ASNs from access ISPs; decide that first.
 - [ ] **Custom log formats** (4.1): "combined + extras" (request time, vhost, forwarded IP) and user-supplied nginx `log_format` / Apache `LogFormat` strings, set per site. **Blocked on the owner** supplying a sample log in a non-default format. (A cPanel/WHM monthly archive has been supplied: it is plain combined format with IPv4 and IPv6 clients, so cPanel needs nothing custom.)
 - [ ] **Proxy / CDN detection** (4.2): detect logs that record Cloudflare's address instead of the visitor's, and use a forwarded-IP field when the format has one. Depends on custom formats.
-- [ ] **SEO crawl reports** (6.4): crawled URLs, crawl frequency, errors and redirects seen by bots, inconsistent responses, crawl waste, housekeeping fetches, Googlebot smartphone vs desktop. The owner wants SEO as a secondary audience, so this matters for positioning.
-- [ ] **Known URLs** (6.4): fetch a sitemap or import a URL list, then "uncrawled" and "orphan" reports. The `known_urls` table exists and is unused.
+- [ ] **Known URLs** (6.4): fetch a sitemap or import a URL list, then "uncrawled" and "orphan" reports (6.4 items 6 and 7, the only two of the SEO reports not built). The `known_urls` table exists and is unused. The orphan report can reuse the crawl-waste categories to leave out assets and junk. Finding the sitemap without being told where it is (owner's idea, 2026-11-17): read the site's `robots.txt` for `Sitemap:` lines first, then try the usual locations (`/sitemap.xml`, `/sitemap_index.xml`, `/wp-sitemap.xml` and the like). Still a fetch the user starts, and one that can be switched off, like every other outbound call.
 - [ ] **Desktop app for macOS and Linux in releases** (13): the release workflow builds the Windows installer and the command-line tool for Windows, Linux x64 and macOS arm64. The app has never been opened on macOS or Linux, so it is not shipped there; an unsigned macOS app also needs first-launch instructions. No Intel macOS command-line build either.
 - [ ] **Code signing with SignPath Foundation** (decided, cannot apply yet): free signing for open source projects. Their terms require the project to be already released in the form to be signed, and the application form (signpath.org/apply) has a required "Reputation" field: links showing the project is widely used or trusted (download statistics, GitHub insights, coverage, discussions), plus a project name that a web search clearly identifies. So: release unsigned, build up some evidence of use, then apply. Also needed then: the attribution line "Free code signing provided by SignPath.io, certificate by SignPath Foundation" in the README's code signing policy and on the download page, multi-factor authentication on GitHub and SignPath, and a signing step in the release workflow that the owner approves per release. The form asks for name and email for the SignPath account, and has a reCAPTCHA, so the owner submits it.
 - [ ] **Faster release builds**: the first release run took 1 h 24 min. On Windows the installer step took 44 minutes and the command-line step after it another 37, which means DuckDB was compiled twice; find out why the second `cargo build -p logloupe` does not reuse the first build (different features or environment under `tauri build`) and build both in one pass. The build cache is also not shared between tags.
@@ -29,7 +28,7 @@ Last updated: 2026-11-17. The history was rewritten on 2026-11-16, so commit has
 ## Waiting on the owner
 
 - [ ] Sample log in a custom nginx `log_format`.
-- [ ] Try the SSH fetch from the app (only the command line has been used), and on a cPanel account if one is to hand.
+- [ ] Try the SSH fetch on a cPanel account if one is to hand.
 - [ ] SignPath application submitted on 2026-11-17; waiting for their reply by email. The reputation answer said plainly that the project is new with no download figures, so they may decline or ask to re-apply later. If approved: add the signing step to the release workflow, change the code signing policy to the present tense, and tell the website.
 - [ ] The website folder and its product brief have not been re-read for client-identifying strings.
 - [ ] macOS signing needs an Apple Developer account; undecided.
@@ -40,7 +39,9 @@ Last updated: 2026-11-17. The history was rewritten on 2026-11-16, so commit has
 Things built and tested in the engine or from the command line, but not exercised by hand in the app:
 
 - [ ] **SSH fetch against a real server.** The tests use a stand-in server, plus one that runs the real listing and download scripts through a local `sh`. On 2026-11-17 the command-line tool was run against one of the owner's own Ubuntu servers with the Windows OpenSSH client: files the account could not read were reported as such, and once the account was in the `adm` group 15 nginx logs (13 gzip, 2 plain, 109 rows) were fetched and ingested, a second fetch downloaded nothing, and no temporary file was left. Those logs are tiny, so the same day it was run against a busier server (ISPConfig layout, logs under `~/log/`): 11 files, 53 MB, about 701,000 rows, fetched and ingested in 36 seconds with no bad lines; a second fetch skipped the 10 unchanged files and resumed the live log, adding only its 28 new lines. Not yet seen: a cPanel jailed shell, a server with BSD `stat`, a server whose login script prints text, a multi-gigabyte log, cancelling mid-download.
-- [ ] The "Fetch from a server" card in the app has been type-checked and built, but never opened.
+- [ ] The owner ran a fetch from the "Fetch from a server" card on 2026-11-17 and it worked. The bot IP range status line and the "Do not refresh bot IP ranges first" switch were added after that and have not been looked at in the app.
+- [ ] **SEO crawl reports on real logs.** Built and tested on 2026-11-17 against a hand-written fixture and a generated 30 MB log, from the command line and by opening all six screens in the app. The owner tried the app build the same day and was happy with it; changes will follow from use. Not confirmed on a real site's logs, so possibly unseen: how the waste patterns read on real URLs, Googlebot Image / Video / News user agents, a site with assets crawled, a large site's speed (each screen runs two to four grouped queries over the crawler rows), and the "slowest" table, which needs a log with response times.
+- [ ] The "Bot address" (verified state) choice in the app's filter bar is new and was not clicked through; the SEO screens were only opened with no filters set.
 
 - [ ] Dark mode on every screen (the chart is the likeliest problem).
 - [ ] CSV export, the Copy button on block lists, "View requests", the Geography and Status codes pages, the Settings downloads.
@@ -50,6 +51,9 @@ Things built and tested in the engine or from the command line, but not exercise
 
 ## Smaller gaps
 
+- [ ] "View requests" from an SEO screen shows every request matching the filter bar, not only the verified search crawlers the screen counted. Click a bot first, or set "Bot address" to Verified.
+- [ ] SEO reports count verified crawlers or one other verified state, never verified and unverifiable together. Yandex and Baidu are only verifiable with reverse DNS on, and DuckDuckGo not at all, so they are left out by default (the notes give the number).
+- [ ] The generated demo log has no asset or image-crawler requests from bots, so the crawl-waste "asset" category is empty in screenshots.
 - [ ] Rollup fallback for pruned days exists only for the Overview report (3.5). Sources, geography and bots report on remaining raw rows and say so.
 - [ ] `reenrich` takes no date range and does not recompute `source_type` after hostnames change (5.4). Re-ingest with `--force` is the workaround.
 - [ ] Arbitrary CIDR filters: only an exact address, an IPv4 /24 or an IPv6 /48 work (3.2).
@@ -90,9 +94,10 @@ Things built and tested in the engine or from the command line, but not exercise
 - [x] Traffic: overview, sources, campaigns, landing pages, geography, AI referrals (6.1)
 - [x] Bots: all bots, fake bots, bot IPs, AI crawlers, undeclared (6.2)
 - [x] Abuse: bursts, status codes, top IPs, query strings, referrers (6.3, plus additions)
+- [x] SEO: crawl overview, crawled URLs (with least crawled, largest, slowest), crawl errors (errors, redirects, inconsistent), crawl waste, robots and sitemap fetches, Googlebot smartphone against desktop (6.4, all but the two that need known URLs). Verified search crawlers by default; the notes count what was left out. `crates/core/src/report/crawl.rs`
 - [x] Requests drill-down, paged (6.5)
 - [x] Block lists: plain, nginx `deny`, Apache `<RequireAll>`; verified bots and local addresses always left out (6.3.6)
-- [x] Shared filters: dates, status class and exact code, path prefix, IP, source, country, ASN, bot, verified state, referrer, user agent
+- [x] Shared filters: dates, status class and exact code, path prefix, IP, source, country, ASN, bot, verified state (in the app's filter bar too, as "Bot address"), referrer, user agent
 - [x] JSON envelope with named tables, paging, totals, coverage and notes (7.2)
 
 ### Command line
@@ -122,6 +127,6 @@ Things built and tested in the engine or from the command line, but not exercise
 - [x] Renamed to Logloupe; MIT licence; GitHub organisation and repository (public since 2026-11-17); logloupe.com registered
 - [x] CI on Windows, macOS and Linux: format, clippy, tests
 - [x] Release workflow: a `v*` tag builds the Windows setup program and the command-line tool for three systems, with checksums, into a draft GitHub release (13)
-- [x] Synthetic log generator with a burst, fake bots and a query-string loop, using only documentation address ranges for anything accused
+- [x] Synthetic log generator with a burst, fake bots, a query-string loop and both Googlebot crawlers (smartphone and desktop), using only documentation address ranges for anything accused
 - [x] Screenshots from the real app on synthetic data (`tools/screenshots.mjs`)
 - [x] Product brief for the website session

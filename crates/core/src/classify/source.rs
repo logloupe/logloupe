@@ -195,6 +195,16 @@ impl SourceRules {
         }
     }
 
+    /// Lowercase file extensions that mark a static asset.
+    pub fn asset_extensions(&self) -> &[String] {
+        &self.asset_extensions
+    }
+
+    /// Path prefixes that are never pages.
+    pub fn non_page_prefixes(&self) -> &[String] {
+        &self.non_page_prefixes
+    }
+
     /// True when the path is a static asset or an internal endpoint rather
     /// than something a visitor would call a page.
     pub fn is_asset(&self, path: &str) -> bool {

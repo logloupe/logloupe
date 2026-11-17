@@ -11,7 +11,7 @@ const VERIFY_NOTE: &str = "A bot is verified when its address is inside the oper
      fake when the operator publishes ranges and the address is outside them, and unverifiable when \
      the operator publishes no usable list or no ranges are cached (run `logloupe ranges update`).";
 
-const SEEN: &str = "strftime(min(r.ts_local), '%Y-%m-%d %H:%M:%S') AS first_seen,
+pub(super) const SEEN: &str = "strftime(min(r.ts_local), '%Y-%m-%d %H:%M:%S') AS first_seen,
                     strftime(max(r.ts_local), '%Y-%m-%d %H:%M:%S') AS last_seen";
 
 const VERDICTS: &str = "count(*) FILTER (WHERE r.bot_verify = 'verified') AS verified,
@@ -19,11 +19,11 @@ const VERDICTS: &str = "count(*) FILTER (WHERE r.bot_verify = 'verified') AS ver
                         count(*) FILTER (WHERE r.bot_verify = 'unverifiable') AS unverifiable";
 
 /// Requests joined to their user agent and the registry's bot details.
-const BOT_ROWS: &str =
+pub(super) const BOT_ROWS: &str =
     "requests r JOIN user_agents u USING (ua_id) JOIN loga_bots b ON b.bot_key = u.bot_key";
 
 /// Makes the registry available to SQL as the temporary table `loga_bots`.
-fn load_registry(scope: &Scope<'_>, store: &Store) -> Result<()> {
+pub(super) fn load_registry(scope: &Scope<'_>, store: &Store) -> Result<()> {
     let registry = Registry::load(store.data_root())?;
     let values: Vec<String> = registry
         .bots()

@@ -40,6 +40,17 @@ const groups: { title: string; items: NavItem[] }[] = [
     ],
   },
   {
+    title: 'SEO',
+    items: [
+      { id: 'crawl', label: 'Crawl overview', icon: 'i-lucide-radar', description: 'What verified search engine crawlers fetched: per crawler, per day and per directory.' },
+      { id: 'crawled-urls', label: 'Crawled URLs', icon: 'i-lucide-file-search', description: 'Every URL the crawlers fetched: how often, when first and last, the last status and the size.' },
+      { id: 'crawl-errors', label: 'Crawl errors', icon: 'i-lucide-file-x', description: 'Errors and redirects served to search crawlers, and URLs that answered inconsistently.' },
+      { id: 'crawl-waste', label: 'Crawl waste', icon: 'i-lucide-trash-2', description: 'How much crawling went on errors, redirects and parameterised URLs, and the patterns behind it.' },
+      { id: 'crawl-housekeeping', label: 'Robots and sitemaps', icon: 'i-lucide-file-cog', description: 'Fetches of robots.txt and sitemaps per crawler, with the status codes they got.' },
+      { id: 'googlebot', label: 'Googlebot split', icon: 'i-lucide-smartphone', description: 'Googlebot smartphone against desktop crawling, with the image, video and news crawlers.' },
+    ],
+  },
+  {
     title: 'Abuse',
     items: [
       { id: 'bursts', label: 'Bursts', icon: 'i-lucide-zap', description: 'Incidents: minutes where an address, network, provider or the whole site ran far above the normal rate.' },

@@ -736,3 +736,334 @@ fn bursts_become_incidents() {
         .is_empty()
     );
 }
+
+const GOOGLEBOT_PHONE: &str = "Mozilla/5.0 (Linux; Android 6.0.1; Nexus 5X Build/MMB29P) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Mobile Safari/537.36 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)";
+const BINGBOT: &str = "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm) Chrome/116.0.1938.76 Safari/537.36";
+
+/// Two days of crawling. Addresses .10 (Googlebot smartphone), .11 (Googlebot
+/// desktop) and .12 (Bingbot) are verified; .13 claims Googlebot and is
+/// unverifiable; .14 is a person.
+fn crawl_fixture(name: &str) -> (TempDataDir, Store) {
+    let log = [
+        line(
+            10,
+            "14/Nov/2026:10:00:00",
+            "/robots.txt",
+            200,
+            "-",
+            GOOGLEBOT_PHONE,
+        ),
+        line(
+            10,
+            "14/Nov/2026:10:00:01",
+            "/sitemap.xml",
+            200,
+            "-",
+            GOOGLEBOT_PHONE,
+        ),
+        line(
+            10,
+            "14/Nov/2026:10:01:00",
+            "/blog/first-post/",
+            200,
+            "-",
+            GOOGLEBOT_PHONE,
+        ),
+        line(
+            10,
+            "14/Nov/2026:10:02:00",
+            "/blog/first-post/",
+            200,
+            "-",
+            GOOGLEBOT_PHONE,
+        ),
+        line(
+            10,
+            "15/Nov/2026:09:00:00",
+            "/blog/first-post/",
+            404,
+            "-",
+            GOOGLEBOT_PHONE,
+        ),
+        line(
+            11,
+            "14/Nov/2026:10:03:00",
+            "/blog/?page=2",
+            200,
+            "-",
+            GOOGLEBOT,
+        ),
+        line(11, "14/Nov/2026:10:04:00", "/old-page", 301, "-", GOOGLEBOT),
+        line(
+            11,
+            "14/Nov/2026:10:05:00",
+            "/assets/app.js",
+            200,
+            "-",
+            GOOGLEBOT,
+        ),
+        line(12, "14/Nov/2026:10:06:00", "/robots.txt", 404, "-", BINGBOT),
+        line(12, "14/Nov/2026:10:07:00", "/about/", 200, "-", BINGBOT),
+        line(13, "14/Nov/2026:10:08:00", "/secret/", 200, "-", GOOGLEBOT),
+        line(
+            14,
+            "14/Nov/2026:10:09:00",
+            "/blog/first-post/",
+            200,
+            "-",
+            CHROME,
+        ),
+    ]
+    .concat();
+
+    let tmp = TempDataDir::new(name);
+    let mut store = Store::create(
+        &tmp.0,
+        "site",
+        &SiteSettings::default(),
+        &OpenOptions::default(),
+    )
+    .unwrap();
+    let path = tmp.0.root().join("access.log");
+    std::fs::write(&path, log).unwrap();
+    ingest(
+        &mut store,
+        &[path],
+        &IngestOptions::default(),
+        &mut |_| {},
+        &AtomicBool::new(false),
+    )
+    .unwrap();
+    store
+        .conn
+        .execute_batch(
+            "UPDATE requests SET bot_verify = 'verified'
+               WHERE ip IN ('203.0.113.10', '203.0.113.11', '203.0.113.12');
+             UPDATE requests SET bot_verify = 'unverifiable' WHERE ip = '203.0.113.13';",
+        )
+        .unwrap();
+    (tmp, store)
+}
+
+#[test]
+fn crawl_counts_verified_search_crawlers() {
+    let (_tmp, store) = crawl_fixture("report-crawl");
+    let result = run(&store, "crawl", &ReportParams::default()).unwrap();
+    assert_eq!(
+        rows(&result, "by_bot"),
+        vec![
+            json!({"bot": "Googlebot", "operator": "Google", "hits": 8, "urls": 6, "bytes": 800,
+                   "redirects": 1, "errors": 1,
+                   "first_seen": "2026-11-14 10:00:00", "last_seen": "2026-11-15 09:00:00"}),
+            json!({"bot": "Bingbot", "operator": "Microsoft Bing", "hits": 2, "urls": 2, "bytes": 200,
+                   "redirects": 0, "errors": 1,
+                   "first_seen": "2026-11-14 10:06:00", "last_seen": "2026-11-14 10:07:00"}),
+        ]
+    );
+    assert_eq!(table(&result, "by_bot").totals["hits"], 10);
+    // The unverifiable Googlebot request is left out, and the report says so.
+    assert!(
+        result.notes.iter().any(
+            |n| n.starts_with("1 request(s) from search engine crawlers could not be verified")
+        )
+    );
+    assert_eq!(
+        rows(&result, "series"),
+        vec![
+            json!({"bucket": "2026-11-14", "bot": "Googlebot", "hits": 7}),
+            json!({"bucket": "2026-11-14", "bot": "Bingbot", "hits": 2}),
+            json!({"bucket": "2026-11-15", "bot": "Googlebot", "hits": 1}),
+        ]
+    );
+    let directories = rows(&result, "directories");
+    assert_eq!(
+        directories
+            .iter()
+            .map(|d| (
+                d["directory"].as_str().unwrap(),
+                d["hits"].as_i64().unwrap()
+            ))
+            .collect::<Vec<_>>(),
+        vec![("/", 4), ("/blog/", 4), ("/about/", 1), ("/assets/", 1)]
+    );
+    assert_eq!(directories[1]["share"], 40.0);
+    assert_eq!(directories[1]["urls"], 2);
+
+    // The bot filter picks one crawler; the verified filter replaces the default.
+    let with = |filters: Filters| ReportParams {
+        filters,
+        ..Default::default()
+    };
+    let bing = run(
+        &store,
+        "crawl",
+        &with(Filters {
+            bot: Some("bingbot".into()),
+            ..Default::default()
+        }),
+    )
+    .unwrap();
+    assert_eq!(rows(&bing, "by_bot").len(), 1);
+    assert_eq!(rows(&bing, "by_bot")[0]["hits"], 2);
+    let unverified = run(
+        &store,
+        "crawl",
+        &with(Filters {
+            verified: Some("unverifiable".into()),
+            ..Default::default()
+        }),
+    )
+    .unwrap();
+    assert_eq!(table(&unverified, "by_bot").totals["hits"], 1);
+}
+
+#[test]
+fn crawled_urls_and_response_times() {
+    let (_tmp, store) = crawl_fixture("report-crawled-urls");
+    let result = run(&store, "crawled-urls", &ReportParams::default()).unwrap();
+    let urls = rows(&result, "urls");
+    // Seven URLs: Google and Bing both fetched /robots.txt.
+    assert_eq!(urls.len(), 7);
+    assert_eq!(
+        urls[0],
+        json!({"path": "/blog/first-post/", "query": null, "hits": 3,
+               "first_seen": "2026-11-14 10:01:00", "last_seen": "2026-11-15 09:00:00",
+               "last_status": 404, "avg_bytes": 100})
+    );
+    assert!(
+        urls.iter()
+            .any(|u| u["path"] == "/blog/" && u["query"] == "page=2")
+    );
+    assert_eq!(table(&result, "urls").totals["urls"], 7);
+    // Fewest fetches first, then the one fetched longest ago.
+    let least = rows(&result, "least_crawled");
+    assert_eq!(least[0]["path"], "/sitemap.xml");
+    assert_eq!(least.last().unwrap()["path"], "/blog/first-post/");
+    assert_eq!(rows(&result, "largest").len(), 7);
+    // No response times in the log: no slowest table, and a note saying why.
+    assert!(result.tables.iter().all(|t| t.name != "slowest"));
+    assert!(result.notes.iter().any(|n| n.contains("no slowest URLs")));
+
+    store
+        .conn
+        .execute_batch("UPDATE requests SET request_ms = 250 WHERE path = '/about/'")
+        .unwrap();
+    let result = run(&store, "crawled-urls", &ReportParams::default()).unwrap();
+    assert_eq!(
+        rows(&result, "slowest"),
+        vec![json!({"path": "/about/", "query": null, "hits": 1, "avg_ms": 250, "max_ms": 250})]
+    );
+    let about = rows(&result, "urls")
+        .into_iter()
+        .find(|u| u["path"] == "/about/")
+        .unwrap();
+    assert_eq!(about["avg_ms"], 250);
+}
+
+#[test]
+fn crawl_errors_redirects_and_inconsistent_urls() {
+    let (_tmp, store) = crawl_fixture("report-crawl-errors");
+    let result = run(&store, "crawl-errors", &ReportParams::default()).unwrap();
+    assert_eq!(
+        rows(&result, "errors"),
+        vec![
+            json!({"path": "/blog/first-post/", "query": null, "status": 404, "hits": 1, "bots": 1,
+                   "first_seen": "2026-11-15 09:00:00", "last_seen": "2026-11-15 09:00:00"}),
+            json!({"path": "/robots.txt", "query": null, "status": 404, "hits": 1, "bots": 1,
+                   "first_seen": "2026-11-14 10:06:00", "last_seen": "2026-11-14 10:06:00"}),
+        ]
+    );
+    let redirects = rows(&result, "redirects");
+    assert_eq!(redirects.len(), 1);
+    assert_eq!(
+        (&redirects[0]["path"], &redirects[0]["status"]),
+        (&json!("/old-page"), &json!(301))
+    );
+    // The post went from 200 to 404; robots.txt gave Google 200 and Bing 404.
+    assert_eq!(
+        rows(&result, "inconsistent"),
+        vec![
+            json!({"path": "/blog/first-post/", "query": null, "statuses": "200, 404", "hits": 3,
+                   "last_status": 404,
+                   "first_seen": "2026-11-14 10:01:00", "last_seen": "2026-11-15 09:00:00"}),
+            json!({"path": "/robots.txt", "query": null, "statuses": "200, 404", "hits": 2,
+                   "last_status": 404,
+                   "first_seen": "2026-11-14 10:00:00", "last_seen": "2026-11-14 10:06:00"}),
+        ]
+    );
+}
+
+#[test]
+fn crawl_waste_housekeeping_and_googlebot_split() {
+    let (_tmp, store) = crawl_fixture("report-crawl-waste");
+    let result = run(&store, "crawl-waste", &ReportParams::default()).unwrap();
+    let summary: Vec<(String, i64)> = rows(&result, "summary")
+        .iter()
+        .map(|s| {
+            (
+                s["category"].as_str().unwrap().to_owned(),
+                s["hits"].as_i64().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        summary,
+        [
+            ("page", 3),
+            ("error", 2),
+            ("housekeeping", 2),
+            ("asset", 1),
+            ("parameters", 1),
+            ("redirect", 1)
+        ]
+        .map(|(c, h)| (c.to_owned(), h))
+    );
+    assert_eq!(rows(&result, "summary")[0]["share"], 30.0);
+    assert_eq!(
+        table(&result, "summary").totals,
+        json!({"hits": 10, "wasted": 4})
+            .as_object()
+            .unwrap()
+            .clone()
+    );
+    let patterns = rows(&result, "patterns");
+    assert_eq!(patterns.len(), 4);
+    assert!(
+        patterns
+            .iter()
+            .any(|p| p["category"] == "parameters" && p["pattern"] == "/blog/?page=…")
+    );
+
+    let result = run(&store, "crawl-housekeeping", &ReportParams::default()).unwrap();
+    let by_bot = rows(&result, "by_bot");
+    assert_eq!(by_bot.len(), 3);
+    assert_eq!(
+        by_bot[0],
+        json!({"bot": "Bingbot", "file": "robots.txt", "hits": 1, "ok": 0, "errors": 1,
+               "last_status": 404,
+               "first_seen": "2026-11-14 10:06:00", "last_seen": "2026-11-14 10:06:00"})
+    );
+    assert_eq!(
+        (&by_bot[2]["bot"], &by_bot[2]["file"], &by_bot[2]["ok"]),
+        (&json!("Googlebot"), &json!("sitemap"), &json!(1))
+    );
+    assert_eq!(rows(&result, "files").len(), 3);
+
+    let result = run(&store, "googlebot", &ReportParams::default()).unwrap();
+    let by_crawler = rows(&result, "by_crawler");
+    assert_eq!(
+        by_crawler
+            .iter()
+            .map(|c| (
+                c["crawler"].as_str().unwrap(),
+                c["hits"].as_i64().unwrap(),
+                c["share"].as_f64().unwrap()
+            ))
+            .collect::<Vec<_>>(),
+        vec![
+            ("Googlebot Smartphone", 5, 62.5),
+            ("Googlebot Desktop", 3, 37.5)
+        ]
+    );
+    assert_eq!(rows(&result, "series").len(), 3);
+}

@@ -65,6 +65,8 @@ const BROWSERS: &[&str] = &[
     "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/31.0 Chrome/148.0.0.0 Mobile Safari/537.36",
 ];
 
+const GOOGLEBOT_SMARTPHONE: &str = "Mozilla/5.0 (Linux; Android 6.0.1; Nexus 5X Build/MMB29P) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Mobile Safari/537.36 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)";
+
 /// (user agent, IPv4 prefix the bot really crawls from)
 const BOTS: &[(&str, &str)] = &[
     (
@@ -335,8 +337,15 @@ fn main() -> io::Result<()> {
             status = if rng.chance(700) { 404 } else { 200 };
         } else if roll < 260 {
             let (bot_ua, prefix) = BOTS[rng.skewed(BOTS.len() as u64) as usize];
-            ip = format!("{prefix}.{}", rng.below(250) + 1);
-            ua = bot_ua;
+            let host = rng.below(250) + 1;
+            ip = format!("{prefix}.{host}");
+            // Three in four Googlebot addresses are the smartphone crawler.
+            // Decided by the address, so the random sequence is unchanged.
+            ua = if bot_ua == BOTS[0].0 && !host.is_multiple_of(4) {
+                GOOGLEBOT_SMARTPHONE
+            } else {
+                bot_ua
+            };
             path = match rng.below(100) {
                 0..=1 => "/robots.txt".to_owned(),
                 2 => "/sitemap_index.xml".to_owned(),

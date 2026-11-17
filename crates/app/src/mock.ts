@@ -32,6 +32,11 @@ const reports = [
   { name: 'bots', description: 'Registered bots.', tables: ['by_bot'] },
   { name: 'fake-bots', description: 'Fake bots.', tables: ['by_bot'] },
   { name: 'top-ips', description: 'Busiest addresses.', tables: ['by_ip'] },
+  ...['crawl', 'crawled-urls', 'crawl-errors', 'crawl-waste', 'crawl-housekeeping', 'googlebot'].map((name) => ({
+    name,
+    description: 'Search engine crawling.',
+    tables: ['by_bot'],
+  })),
 ]
 
 function seriesTable(): ReportTable {

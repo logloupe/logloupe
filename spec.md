@@ -424,7 +424,25 @@ Filtered to verified search bots by default, with a selector for which bot.
 10. Housekeeping: fetches of `robots.txt` and sitemaps per bot, with status codes.
 11. Googlebot smartphone vs desktop split.
 
-Known URLs come from: fetching the site's sitemap (follow sitemap index files, handle gzipped sitemaps), or importing a CSV/TXT with a URL column. Store paths normalised to match log paths.
+As built (items 6 and 7 wait for known URLs):
+
+| Report | Tables | Items |
+| --- | --- | --- |
+| `crawl` | `by_bot`, `series`, `directories` | 2 |
+| `crawled-urls` | `urls`, `least_crawled`, `largest`, `slowest` | 1, 2, 9 |
+| `crawl-errors` | `errors`, `redirects`, `inconsistent` | 3, 4, 5 |
+| `crawl-waste` | `summary`, `patterns` | 8 |
+| `crawl-housekeeping` | `by_bot`, `files` | 10 |
+| `googlebot` | `by_crawler`, `series` | 11 |
+
+- **Who is counted.** With no bot filter: bots of kind `search`. With a bot filter: that bot, of any kind. With no verified filter: `verified` rows only, and the report's notes give the number of unverifiable and fake requests left out. A verified filter replaces that default. The `googlebot` report always counts the `googlebot` key.
+- **A URL is the path plus the query string**, returned as two columns (`path`, `query`) so the path stays usable as a filter.
+- **Redirects** are 301, 302, 303, 307 and 308. A 304 is not a redirect, and counts as a success when deciding whether a URL is inconsistent.
+- **Crawl waste categories**, first match wins: `error`, `redirect`, `housekeeping` (robots.txt and sitemaps), `asset` (the same rules as `is_page`), `parameters` (any query string), `page`. The `wasted` total is error + redirect + parameters. A pattern is the path with each run of digits replaced by `#`, plus the query string with each value replaced by `…`.
+- **Timing.** `slowest` and the `avg_ms` column are left out of the result when no counted row has `request_ms`, and a note says why.
+- **Googlebot crawler** is read from the user agent: Image, Video and News by name, Smartphone when it names Android or Mobile, otherwise Desktop.
+
+Known URLs come from: fetching the site's sitemap (follow sitemap index files, handle gzipped sitemaps), or importing a CSV/TXT with a URL column. When no sitemap URL is given, look for one: the `Sitemap:` lines in the site's `robots.txt` first, then the usual locations (`/sitemap.xml`, `/sitemap_index.xml`, `/wp-sitemap.xml`). Store paths normalised to match log paths.
 
 ### 6.5 Drill-down
 

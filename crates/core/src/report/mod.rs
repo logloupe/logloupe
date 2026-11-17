@@ -13,6 +13,7 @@ use crate::store::Store;
 mod abuse;
 pub mod blocklist;
 mod bots;
+mod crawl;
 mod traffic;
 
 /// Version of the JSON envelope. Bump on breaking changes.
@@ -221,6 +222,42 @@ pub const REPORTS: &[ReportInfo] = &[
         description: "Tools, HTTP libraries, and empty or unrecognised user agents.",
         tables: &["by_agent", "by_ip"],
         run: bots::undeclared,
+    },
+    ReportInfo {
+        name: "crawl",
+        description: "Verified search engine crawlers: hits per crawler, per day and per directory.",
+        tables: &["by_bot", "series", "directories"],
+        run: crawl::crawl,
+    },
+    ReportInfo {
+        name: "crawled-urls",
+        description: "Every URL search crawlers fetched: how often, first and last seen, last status and size.",
+        tables: &["urls", "least_crawled", "largest", "slowest"],
+        run: crawl::crawled_urls,
+    },
+    ReportInfo {
+        name: "crawl-errors",
+        description: "Errors and redirects served to search crawlers, and URLs that answered inconsistently.",
+        tables: &["errors", "redirects", "inconsistent"],
+        run: crawl::crawl_errors,
+    },
+    ReportInfo {
+        name: "crawl-waste",
+        description: "Share of crawling spent on errors, redirects, parameterised URLs and assets, with the top patterns.",
+        tables: &["summary", "patterns"],
+        run: crawl::crawl_waste,
+    },
+    ReportInfo {
+        name: "crawl-housekeeping",
+        description: "Fetches of robots.txt and sitemaps per crawler, with the status codes they got.",
+        tables: &["by_bot", "files"],
+        run: crawl::crawl_housekeeping,
+    },
+    ReportInfo {
+        name: "googlebot",
+        description: "Googlebot smartphone against desktop (and image, video, news) crawling.",
+        tables: &["by_crawler", "series"],
+        run: crawl::googlebot,
     },
     ReportInfo {
         name: "bursts",

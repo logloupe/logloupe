@@ -50,6 +50,12 @@ const sourceItems = [
     value,
   })),
 ]
+const verifiedItems = [
+  { label: 'Not filtered', value: 'any' },
+  { label: 'Verified', value: 'verified' },
+  { label: 'Fake', value: 'fake' },
+  { label: 'Unverifiable', value: 'unverifiable' },
+]
 
 // Choices apply as soon as they are made.
 const statusModel = computed({
@@ -63,6 +69,13 @@ const sourceModel = computed({
   get: () => state.source || 'any',
   set: (value: string) => {
     state.source = value === 'any' ? '' : value
+    refreshReports()
+  },
+})
+const verifiedModel = computed({
+  get: () => state.verified || 'any',
+  set: (value: string) => {
+    state.verified = value === 'any' ? '' : value
     refreshReports()
   },
 })
@@ -117,6 +130,9 @@ const hiddenCount = computed(() => activeFilters.value.filter((f) => f.key !== '
       </UFormField>
       <UFormField label="Bot" size="sm">
         <UInput v-model="draft.bot" placeholder="googlebot" size="sm" class="w-32" />
+      </UFormField>
+      <UFormField label="Bot address" size="sm">
+        <USelect v-model="verifiedModel" :items="verifiedItems" size="sm" class="w-32" />
       </UFormField>
       <UFormField label="Referrer contains" size="sm">
         <UInput v-model="draft.referrer" placeholder="(none)" size="sm" class="w-44" />

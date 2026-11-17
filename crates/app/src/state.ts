@@ -13,6 +13,8 @@ export const state = reactive({
   from: '',
   to: '',
   bot: '',
+  /** verified, fake or unverifiable. */
+  verified: '',
   statusClass: '',
   statusCode: '',
   pathPrefix: '',
@@ -54,6 +56,7 @@ export function clearFilters(): void {
   state.from = ''
   state.to = ''
   state.bot = ''
+  state.verified = ''
   state.statusClass = ''
   state.statusCode = ''
   state.pathPrefix = ''
@@ -72,6 +75,7 @@ export const hasFilters = computed(
       state.from ||
       state.to ||
       state.bot ||
+      state.verified ||
       state.statusClass ||
       state.statusCode ||
       state.pathPrefix ||
@@ -88,6 +92,7 @@ export const hasFilters = computed(
 export function reportParams(extra: Partial<ReportParams> = {}): ReportParams {
   const filters: Filters = {}
   if (state.bot.trim()) filters.bot = state.bot.trim()
+  if (state.verified) filters.verified = state.verified
   if (state.statusClass) filters.status_class = Number(state.statusClass)
   if (state.statusCode) filters.status = Number(state.statusCode)
   if (state.pathPrefix.trim()) filters.path_prefix = state.pathPrefix.trim()
@@ -117,6 +122,7 @@ const cellFilters: Record<string, (value: string) => void> = {
   referer_host: (v) => (state.referrer = `//${v}`),
   user_agent: (v) => (state.userAgent = v === '(none)' ? v : `=${v}`),
   path: (v) => (state.pathPrefix = v),
+  directory: (v) => (state.pathPrefix = v),
   bot: (v) => (state.bot = v),
   claimed_bot: (v) => (state.bot = v),
   source_type: (v) => (state.source = v),
@@ -139,6 +145,7 @@ export type FilterKey =
   | 'from'
   | 'to'
   | 'bot'
+  | 'verified'
   | 'statusClass'
   | 'statusCode'
   | 'pathPrefix'
@@ -172,6 +179,7 @@ export const activeFilters = computed<ActiveFilter[]>(() => {
   if (state.pathPrefix) list.push({ key: 'pathPrefix', label: `Path starts with ${state.pathPrefix}` })
   if (state.ip) list.push({ key: 'ip', label: `IP ${state.ip}` })
   if (state.bot) list.push({ key: 'bot', label: `Bot is ${state.bot}` })
+  if (state.verified) list.push({ key: 'verified', label: `Bot address is ${state.verified}` })
   if (state.referrer) list.push({ key: 'referrer', label: describeText('referrer', state.referrer) })
   if (state.userAgent) list.push({ key: 'userAgent', label: describeText('user agent', state.userAgent) })
   if (state.country) list.push({ key: 'country', label: `Country is ${state.country}` })
