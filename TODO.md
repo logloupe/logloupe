@@ -29,7 +29,7 @@ Last updated: 2026-11-16. The history was rewritten that day, so commit hashes q
 ## Waiting on the owner
 
 - [ ] Sample log in a custom nginx `log_format`.
-- [ ] Submit the SignPath application at signpath.org/apply (it needs the owner's name and email and has a reCAPTCHA). Expect questions about reputation: the project is new and has little evidence of use to cite.
+- [ ] SignPath application submitted on 2026-11-17; waiting for their reply by email. The reputation answer said plainly that the project is new with no download figures, so they may decline or ask to re-apply later. If approved: add the signing step to the release workflow, change the code signing policy to the present tense, and tell the website.
 - [ ] The website folder and its product brief have not been re-read for client-identifying strings.
 - [ ] macOS signing needs an Apple Developer account; undecided.
 - [ ] Confirm in the installed app: the second launch brings the window to the front (single-instance), and data moved across after the rename.
