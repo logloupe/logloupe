@@ -21,7 +21,7 @@ A cross-platform tool for analysing web server access logs: where traffic comes 
 - Replacing GoAccess for hourly server reports.
 - IIS / W3C Extended / load balancer log formats (the parser must be pluggable so these can be added).
 - A long-running server daemon or HTTP API. The CLI is the server interface.
-- Storing SSH private keys or passwords.
+- Storing SSH private keys or passwords. Remote fetch (9) uses the system `ssh` client and whatever it is already set up with.
 
 ---
 
@@ -95,14 +95,14 @@ Treat this as the starting point; adjust types if measurement shows a better opt
 -- schema_version, timezone (3.4), hostnames, retention, client_ip mode (4.2), edge_cache (4.2),
 -- overlap policy (4.3), and the version or hash of each enrichment input
 -- (bot registry, range lists, geo files, UA rules, source host lists)
--- last applied to the stored rows (5.4)
+-- last applied to the stored rows (5.4), and the SSH remote and what was fetched from it (9)
 CREATE TABLE meta (key VARCHAR PRIMARY KEY, value VARCHAR);
 
 -- One row per ingested file, used for de-duplication (4.3) and clean-up
 CREATE TABLE ingested_files (
   file_id        INTEGER PRIMARY KEY,
-  source         VARCHAR,     -- 'local' | 'ssh:<profile>'
-  path           VARCHAR,
+  source         VARCHAR,     -- 'local' | 'ssh:<host>' (9)
+  path           VARCHAR,     -- the local path, or the path on the server for a fetched file
   size_bytes     UBIGINT,     -- size on disk (compressed size for gzip)
   bytes_consumed UBIGINT,     -- decompressed bytes ingested so far, ending on a line boundary; the resume offset
   head_hash      VARCHAR,     -- hash of the first 64 KB of decompressed content (or all of it, if shorter)
@@ -219,7 +219,7 @@ Reports read raw rows wherever they exist. Rollups are only a fallback for days 
 ## 4. Ingest pipeline
 
 ```
-Source (local file | .gz | later: ssh stream)
+Source (local file | .gz; a file fetched over SSH is downloaded first, see 9)
   → BufRead line stream
   → format parser (one line → RawRecord, zero-copy where possible)
   → enrichment (UA classify, bot verify, geo/ASN, source type)
@@ -511,19 +511,97 @@ This envelope is the integration point for Laravel (invoke the binary from a que
 
 ---
 
-## 9. Remote log collection (later phase)
+## 9. Remote log collection
 
-- Shell out to the system `ssh` client (present on Windows 10+, macOS, Linux). This reuses the user's `~/.ssh/config`, agent, and known hosts. The app stores **no keys and no passwords**.
-- A remote profile is: an SSH host alias, one or more remote path globs, and the site it feeds.
-- Fetch by running a remote `cat` (or `zcat`-free: stream the raw `.gz` bytes and decompress locally) and piping stdout straight into the ingest pipeline. Nothing is written to the remote server.
-- List remote files first (name, size, mtime) and skip those already ingested.
-- Typical locations to suggest: nginx `/var/log/nginx/*.log*`; cPanel live logs under `/usr/local/apache/domlogs/` or `/etc/apache2/logs/domlogs/` and monthly archives in `~/logs/<domain>-<Mon>-<YYYY>.gz`. Verify per server; these vary.
+Fetch logs from a server over SSH and ingest them, so nobody has to download them by hand.
+
+### 9.1 Approach: download, then ingest
+
+Each remote file is copied to a temporary file in the data directory, ingested from there exactly as a local file would be, and the temporary file is deleted. The log is **not** streamed from the server into the ingest pipeline. Ingest opens a file up to three times (format probe, resume check, the real read), which a stream cannot offer, and a download that fails is simply thrown away: ingest never sees half a file. De-duplication, grown-file resume and format detection (4.3, 4.1) therefore work unchanged for remote files.
+
+The cost is that a large live log is transferred in full every time it has grown, although only its new lines are ingested. SSH compression softens this. Fetching only the new tail of a grown file is a possible later addition; it needs ingest to work from a stream.
+
+Only one temporary file exists at a time. Temporary files live in `<data-dir>/tmp/` as `fetch-*.part`; ones left behind by a crash are removed at the next fetch once they are a day old.
+
+### 9.2 The SSH client
+
+- Shell out to the system `ssh` client (present on Windows 10+, macOS, Linux). This reuses the user's `~/.ssh/config`, agent and known hosts. The tool stores **no keys and no passwords**, and never asks for one.
+- `ssh` runs with `BatchMode=yes`, so it fails rather than waiting for a passphrase or a host-key answer nobody can type. The requirement on the user is that `ssh <host>` already works in a terminal without asking anything. The error says so when login fails.
+- Also set: `ConnectTimeout=15`, `ServerAliveInterval=15` with `ServerAliveCountMax=3` (a dead connection ends in under a minute instead of hanging), `Compression=yes`, `LogLevel=ERROR` (keeps server banners out of error messages), and `-T` (no terminal).
+- The remote command is always `sh`, and the script is sent on standard input. The account's login shell (bash, zsh, fish, a jailed shell) therefore only ever has to run the word `sh`, and the script is plain POSIX shell.
+- On Windows the client is started without a console window.
+
+### 9.3 Remote settings
+
+A site has at most one remote, stored in its `meta` table under `remote` as JSON:
+
+- `host`: an SSH host alias from `~/.ssh/config`, or `user@host`.
+- `port`: optional, for servers on a non-standard port when there is no config entry.
+- `paths`: one or more remote path patterns, for example `/var/log/nginx/access.log*`.
+
+Typical locations to suggest: nginx `/var/log/nginx/*.log*`; cPanel live logs under `/usr/local/apache/domlogs/` or `/etc/apache2/logs/domlogs/` and monthly archives in `~/logs/<domain>-<Mon>-<YYYY>.gz`; ISPConfig per-site logs in `~/log/*access.log*`. These vary per server.
+
+The account must be able to read the files. On Debian and Ubuntu the logs in `/var/log/nginx` and `/var/log/apache2` belong to the `adm` group, so a deploy user usually cannot until it is added to that group; per-site logs in the account's own folders (cPanel, ISPConfig) need nothing.
+
+A site fed by several servers is not supported yet; fetch from one and ingest the others by hand.
+
+### 9.4 Untrusted input
+
+Both the settings and everything the server sends back are treated as untrusted.
+
+- **Host**: letters, digits, `.`, `_`, `-` and at most one `@`; it must start with a letter or digit. A value starting with `-` would be read by `ssh` as an option, so it is refused, and the host is passed after `--` as well.
+- **Path patterns**: must start with `/` or `~/`. Allowed characters are letters, digits and `. _ - / + , = @ % :` plus the wildcards `* ? [ ]`. No spaces, quotes, `$`, backticks, `;`, `|`, `&`, `<`, `>`, parentheses, braces, `!` or backslashes. Patterns go into the listing script unquoted so that the remote shell expands them, which is why the set is this narrow. At most 20 patterns of 500 characters.
+- **File names returned by the server**: must be absolute and use the same characters without the wildcards. Anything else is left out and reported in a note. Accepted names are single-quoted in the download script.
+- **Sizes**: a download stops with an error as soon as it exceeds the size the listing gave, so a server cannot fill the disk. A listing is limited to 10,000 files and 4 MB of output.
+- Nothing is ever written to the server. The only remote commands are `stat`, `test` (`[`), `echo` and `head`.
+
+### 9.5 Listing
+
+One SSH connection runs a script that prints, between a begin and an end marker, one line per pattern and then one line per regular file it matches: size in bytes, modification time in Unix seconds, and the full path. `stat` is used in its GNU form (`-c`) or its BSD form (`-f`), whichever the server has. Symbolic links are followed. Files the account cannot read are listed separately so they can be reported.
+
+Lines before the begin marker are ignored: some servers print text from a login script. A missing end marker means the listing was cut short and is an error. A pattern that matches nothing produces a note, not an error, because a rotated file is often absent.
+
+Each listed file gets a state:
+
+- `new`: never fetched.
+- `changed`: fetched before, but its size or modification time is different now.
+- `fetched`: fetched before with the same size and modification time, and the file it was ingested as is still in the site. Skipped.
+- `old`: last modified longer ago than the `days` option allows. Skipped.
+
+What was fetched is remembered in `meta` under `remote_seen`: a map from remote path to size, modification time and the `file_id` it was ingested as (none for an empty file). An entry counts only while that `file_id` still exists, so deleting an ingested file or clearing the site makes its remote files `new` again. Entries for paths no longer on the server are dropped at each fetch. Changing the host clears the map.
+
+### 9.6 Fetching
+
+For each `new` or `changed` file, oldest first (so files are ingested in time order and a rotated log is resumed before its successor is added):
+
+1. Download with `head -c <size> -- '<path>'` into the temporary file. Taking exactly the listed size means a log that grows during the download cannot produce a torn result.
+2. Check that exactly that many bytes arrived and that `ssh` exited successfully. Fewer bytes means the file was rotated or the connection dropped; more means a login script is printing to standard output. Either is an error and nothing is ingested from that file.
+3. Ingest the temporary file. It is recorded in `ingested_files` with `source` = `ssh:<host>` and `path` = the remote path, and errors and progress name the remote path.
+4. Record the file in `remote_seen` and delete the temporary file.
+
+As with a local ingest, the first error stops the run and files finished before it stay committed. Retention `none` clears the site at the start of a fetch only when there is something to fetch; files fetched before that are still remembered, so they are not fetched again unless forced. Reverse DNS and retention pruning run once at the end, as they do for a local ingest.
+
+Options: `force` (fetch everything again and replace its rows), `days` (ignore files not modified in the last N days; useful the first time on a server with years of archives), and the ingest options `format`, `overlap` and `dns`.
+
+Progress reports the phase (download or ingest), the file, bytes done and total, rows, and which file of how many. Cancelling stops the `ssh` process, deletes the temporary file and keeps nothing from the file in progress.
+
+### 9.7 Command line and app
+
+```
+logloupe remote set <slug> --host <alias> [--port <n>] --path <pattern> [--path ...]
+logloupe remote show <slug>
+logloupe remote remove <slug>
+logloupe remote list <slug> [--days <n>]     # what is on the server and what a fetch would do
+logloupe fetch <slug> [--days <n>] [--force] [--format <name>] [--overlap <policy>] [--no-dns]
+```
+
+`fetch` refuses to run with `--offline`. The app has the same on the Ingest screen: the server and patterns, a "Check server" button that shows the listing, and "Fetch new files" with progress and cancel.
 
 ---
 
 ## 10. Privacy
 
-Access logs contain IP addresses, which are personal data under UK GDPR, and these are client sites. Provide: the retention controls in 3.3, an option to truncate IPs (/24, /48) in rollups and exports, and no telemetry of any kind. The only outbound requests the tool makes are range list updates, geo database updates, sitemap fetches, and DNS lookups, each of which can be disabled.
+Access logs contain IP addresses, which are personal data under UK GDPR, and these are client sites. Provide: the retention controls in 3.3, an option to truncate IPs (/24, /48) in rollups and exports, and no telemetry of any kind. The only outbound requests the tool makes are range list updates, geo database updates, sitemap fetches, DNS lookups, and SSH connections to a server the user has set up for a site (9). Each is started by the user or can be disabled.
 
 ---
 

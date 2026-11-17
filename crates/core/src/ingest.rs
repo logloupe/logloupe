@@ -87,6 +87,8 @@ pub struct FileReport {
     pub file_id: Option<i32>,
     pub format: Option<String>,
     pub gzip: bool,
+    /// Size on disk (the compressed size for gzip).
+    pub size_bytes: u64,
     pub rows_ok: u64,
     pub rows_bad: u64,
     pub rows_skipped: u64,
@@ -106,51 +108,100 @@ pub fn ingest(
     progress: &mut dyn FnMut(Progress<'_>),
     cancel: &AtomicBool,
 ) -> Result<Vec<FileReport>> {
-    if store.mode() != Mode::ReadWrite {
-        return Err(Error::invalid("ingest needs the site opened read-write"));
-    }
-    let settings = store.settings()?;
-    if settings.retention == Retention::None {
-        clear_data(&store.conn)?;
-    }
-
-    let rules = SourceRules::from_toml(DEFAULT_RULES, &settings.hosts)
-        .map_err(|e| Error::invalid(format!("invalid source rules: {e}")))?;
-    let registry = Registry::load(store.data_root())?;
-    let ranges = Ranges::load(store.data_root(), &registry);
-    let ctx = Context {
-        rules,
-        registry,
-        ranges,
-        geo: GeoDb::load(store.data_root()),
-        timezone: settings.timezone,
-        overlap: opts.overlap.unwrap_or(settings.overlap),
-    };
-
+    let mut session = Session::begin(store, opts)?;
     let mut reports = Vec::with_capacity(paths.len());
     for path in paths {
-        reports.push(ingest_file(store, path, opts, &ctx, progress, cancel)?);
+        reports.push(session.file(store, path, None, opts, progress, cancel)?);
     }
-
-    if opts.dns && reports.iter().any(|r| r.rows_ok > 0) {
-        // A DNS problem must not fail an ingest that has already succeeded.
-        let _ = bots::rdns::apply(
-            store,
-            &ctx.registry,
-            &bots::rdns::SystemResolver,
-            chrono::Utc::now().date_naive(),
-        );
-    }
-
-    if let Retention::Days(days) = settings.retention {
-        let today = chrono::Utc::now()
-            .with_timezone(&settings.timezone)
-            .date_naive();
-        if let Some(cutoff) = today.checked_sub_days(Days::new(u64::from(days))) {
-            prune_before(store, cutoff)?;
-        }
-    }
+    session.finish(store, opts)?;
     Ok(reports)
+}
+
+/// Where a file came from when it is not the local path it is read from
+/// (spec 9). Recorded in `ingested_files` and used in reports and errors.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Origin<'a> {
+    /// `ssh:<host>`.
+    pub source: &'a str,
+    /// The path on the server.
+    pub path: &'a str,
+}
+
+/// One ingest run: the set-up shared by its files, and the steps that run
+/// once after the last of them.
+pub(crate) struct Session {
+    ctx: Context,
+    retention: Retention,
+    any_rows: bool,
+}
+
+impl Session {
+    /// Loads the enrichment data. With retention `none`, clears the site.
+    pub(crate) fn begin(store: &mut Store, opts: &IngestOptions) -> Result<Session> {
+        if store.mode() != Mode::ReadWrite {
+            return Err(Error::invalid("ingest needs the site opened read-write"));
+        }
+        let settings = store.settings()?;
+        if settings.retention == Retention::None {
+            clear_data(&store.conn)?;
+        }
+
+        let rules = SourceRules::from_toml(DEFAULT_RULES, &settings.hosts)
+            .map_err(|e| Error::invalid(format!("invalid source rules: {e}")))?;
+        let registry = Registry::load(store.data_root())?;
+        let ranges = Ranges::load(store.data_root(), &registry);
+        Ok(Session {
+            ctx: Context {
+                rules,
+                registry,
+                ranges,
+                geo: GeoDb::load(store.data_root()),
+                timezone: settings.timezone,
+                overlap: opts.overlap.unwrap_or(settings.overlap),
+            },
+            retention: settings.retention,
+            any_rows: false,
+        })
+    }
+
+    /// Ingests one file in its own transaction. `local` is where the bytes
+    /// are read from; `origin` says where they came from if that is elsewhere.
+    pub(crate) fn file(
+        &mut self,
+        store: &mut Store,
+        local: &Path,
+        origin: Option<Origin<'_>>,
+        opts: &IngestOptions,
+        progress: &mut dyn FnMut(Progress<'_>),
+        cancel: &AtomicBool,
+    ) -> Result<FileReport> {
+        let report = ingest_file(store, local, origin, opts, &self.ctx, progress, cancel)?;
+        self.any_rows |= report.rows_ok > 0;
+        Ok(report)
+    }
+
+    /// Reverse DNS and retention pruning, once the files are in.
+    pub(crate) fn finish(self, store: &mut Store, opts: &IngestOptions) -> Result<()> {
+        if opts.dns && self.any_rows {
+            // A DNS problem must not fail an ingest that has already succeeded.
+            let _ = bots::rdns::apply(
+                store,
+                &self.ctx.registry,
+                &bots::rdns::SystemResolver,
+                chrono::Utc::now().date_naive(),
+            );
+        }
+
+        if let Retention::Days(days) = self.retention {
+            let today = chrono::Utc::now()
+                .with_timezone(&self.ctx.timezone)
+                .date_naive();
+            if let Some(cutoff) = today.checked_sub_days(Days::new(u64::from(days))) {
+                prune_before(store, cutoff)?;
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Deletes raw rows dated before `cutoff` (a day in the site's time zone).
@@ -283,8 +334,9 @@ fn file_error(path: &Path) -> impl Fn(std::io::Error) -> Error + '_ {
 }
 
 /// Reads up to `PROBE_BYTES` of decompressed content from the start of a file.
-fn read_probe(path: &Path) -> Result<Vec<u8>> {
-    let source = source::open(path).map_err(file_error(path))?;
+/// Errors name `path`, which differs from `local` for a fetched file.
+fn read_probe(local: &Path, path: &Path) -> Result<Vec<u8>> {
+    let source = source::open(local).map_err(file_error(path))?;
     let mut probe = Vec::with_capacity(PROBE_BYTES);
     source
         .reader
@@ -530,7 +582,8 @@ fn ts_value(ts: Option<i64>) -> Value {
 
 fn ingest_file(
     store: &mut Store,
-    path: &Path,
+    local: &Path,
+    origin: Option<Origin<'_>>,
     opts: &IngestOptions,
     ctx: &Context,
     progress: &mut dyn FnMut(Progress<'_>),
@@ -538,10 +591,22 @@ fn ingest_file(
 ) -> Result<FileReport> {
     let started = Instant::now();
     let conn = &store.conn;
-    let path = &std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
-    let path_text = path.to_string_lossy().into_owned();
+    // `path` is the name the file goes by in the database, reports and
+    // errors: the path on the server for a fetched file.
+    let (source_text, path) = match origin {
+        Some(origin) => (origin.source, PathBuf::from(origin.path)),
+        None => (
+            "local",
+            std::path::absolute(local).unwrap_or_else(|_| local.to_path_buf()),
+        ),
+    };
+    let path = &path;
+    let path_text = match origin {
+        Some(origin) => origin.path.to_owned(),
+        None => path.to_string_lossy().into_owned(),
+    };
 
-    let probe = read_probe(path)?;
+    let probe = read_probe(local, path)?;
     let stored = stored_files(conn)?;
 
     // Open the file and, when it starts like a file already ingested, skip to
@@ -549,7 +614,7 @@ fn ingest_file(
     let mut resumed: Option<&StoredFile> = None;
     let mut opened = None;
     for candidate in head_matches(&probe, &stored) {
-        let mut src = source::open(path).map_err(file_error(path))?;
+        let mut src = source::open(local).map_err(file_error(path))?;
         let mut fp = Fingerprint::new();
         let same = skip_bytes(&mut *src.reader, candidate.bytes_consumed, &mut fp)
             .map_err(file_error(path))?
@@ -577,7 +642,7 @@ fn ingest_file(
     let (mut src, mut fp) = match opened {
         Some(pair) if resumed.is_some() => pair,
         _ => (
-            source::open(path).map_err(file_error(path))?,
+            source::open(local).map_err(file_error(path))?,
             Fingerprint::new(),
         ),
     };
@@ -603,6 +668,7 @@ fn ingest_file(
                     file_id: None,
                     format: None,
                     gzip: src.gzip,
+                    size_bytes: src.size_bytes,
                     rows_ok: 0,
                     rows_bad: 0,
                     rows_skipped: 0,
@@ -793,6 +859,7 @@ fn ingest_file(
         file_id: Some(file_id),
         format: Some(format.name().to_owned()),
         gzip: src.gzip,
+        size_bytes: src.size_bytes,
         rows_ok,
         rows_bad,
         rows_skipped,
@@ -823,11 +890,12 @@ fn ingest_file(
             let first = [old.first_ts, report.first_ts].into_iter().flatten().min();
             let last = [old.last_ts, report.last_ts].into_iter().flatten().max();
             conn.execute(
-                "UPDATE ingested_files SET path = ?, size_bytes = ?, bytes_consumed = ?, head_hash = ?,
-                        tail_hash = ?, first_ts = ?, last_ts = ?, rows_ok = ?, rows_bad = ?,
-                        rows_skipped = ?, ingested_at = ?
+                "UPDATE ingested_files SET source = ?, path = ?, size_bytes = ?, bytes_consumed = ?,
+                        head_hash = ?, tail_hash = ?, first_ts = ?, last_ts = ?, rows_ok = ?,
+                        rows_bad = ?, rows_skipped = ?, ingested_at = ?
                  WHERE file_id = ?",
                 params![
+                    source_text,
                     path_text,
                     src.size_bytes,
                     fp.total,
@@ -846,9 +914,10 @@ fn ingest_file(
         None => {
             report.status = FileStatus::Ingested;
             conn.execute(
-                "INSERT INTO ingested_files VALUES (?, 'local', ?, ?, ?, ?, ?, ?, false, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO ingested_files VALUES (?, ?, ?, ?, ?, ?, ?, ?, false, ?, ?, ?, ?, ?, ?)",
                 params![
                     file_id,
+                    source_text,
                     path_text,
                     src.size_bytes,
                     fp.total,

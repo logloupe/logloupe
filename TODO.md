@@ -2,15 +2,15 @@
 
 The single list of what is done and what is left. Update it in the same commit as the work: tick the item, move it if priorities change, and add anything new that comes up. The design behind each item is in [spec.md](spec.md); section numbers below refer to it.
 
-Last updated: 2026-11-16. The history was rewritten that day, so commit hashes quoted anywhere before then no longer exist.
+Last updated: 2026-11-17. The history was rewritten on 2026-11-16, so commit hashes quoted anywhere before then no longer exist.
 
 ## Where things stand
 
 - Engine, command-line tool and desktop app all work on Windows. CI passes on Windows, macOS and Linux (build and tests only; the app has never been opened on macOS or Linux).
 - The owner uses the installed app on real client logs.
-- The repository is `logloupe/logloupe` on GitHub, **public** since 2026-11-17. Release 0.1.0 was published on 2026-11-17 after the owner installed it over the previous copy and confirmed the data was kept. It is unsigned. The website at logloupe.com is built in a separate session.
+- The repository is `logloupe/logloupe` on GitHub, **public** since 2026-11-17. Release 0.1.0 was published on 2026-11-17 after the owner installed it over the previous copy and confirmed the data was kept. It is unsigned. The website at logloupe.com is built in a separate session. SSH fetch was built after 0.1.0 and is not in a release; the website's brief says so.
 - The project lives in `C:\log-analyser`. It was moved off the USB drive `D:` on 2026-11-17 after that drive kept disconnecting; the old copy on `D:` is stale.
-- 79 tests, all passing. `cargo clippy` is clean with warnings as errors.
+- 93 tests, all passing. `cargo clippy` is clean with warnings as errors.
 
 ## Next up, in order
 
@@ -29,6 +29,7 @@ Last updated: 2026-11-16. The history was rewritten that day, so commit hashes q
 ## Waiting on the owner
 
 - [ ] Sample log in a custom nginx `log_format`.
+- [ ] Try the SSH fetch from the app (only the command line has been used), and on a cPanel account if one is to hand.
 - [ ] SignPath application submitted on 2026-11-17; waiting for their reply by email. The reputation answer said plainly that the project is new with no download figures, so they may decline or ask to re-apply later. If approved: add the signing step to the release workflow, change the code signing policy to the present tense, and tell the website.
 - [ ] The website folder and its product brief have not been re-read for client-identifying strings.
 - [ ] macOS signing needs an Apple Developer account; undecided.
@@ -37,6 +38,9 @@ Last updated: 2026-11-16. The history was rewritten that day, so commit hashes q
 ## Not yet verified
 
 Things built and tested in the engine or from the command line, but not exercised by hand in the app:
+
+- [ ] **SSH fetch against a real server.** The tests use a stand-in server, plus one that runs the real listing and download scripts through a local `sh`. On 2026-11-17 the command-line tool was run against one of the owner's own Ubuntu servers with the Windows OpenSSH client: files the account could not read were reported as such, and once the account was in the `adm` group 15 nginx logs (13 gzip, 2 plain, 109 rows) were fetched and ingested, a second fetch downloaded nothing, and no temporary file was left. Those logs are tiny, so the same day it was run against a busier server (ISPConfig layout, logs under `~/log/`): 11 files, 53 MB, about 701,000 rows, fetched and ingested in 36 seconds with no bad lines; a second fetch skipped the 10 unchanged files and resumed the live log, adding only its 28 new lines. Not yet seen: a cPanel jailed shell, a server with BSD `stat`, a server whose login script prints text, a multi-gigabyte log, cancelling mid-download.
+- [ ] The "Fetch from a server" card in the app has been type-checked and built, but never opened.
 
 - [ ] Dark mode on every screen (the chart is the likeliest problem).
 - [ ] CSV export, the Copy button on block lists, "View requests", the Geography and Status codes pages, the Settings downloads.
@@ -57,7 +61,8 @@ Things built and tested in the engine or from the command line, but not exercise
 - [ ] IP truncation option for exports (10).
 - [ ] Abuse reports from the spec not built: distributed patterns, expensive targets, scanners as their own report (6.3.2 to 6.3.4). Bursts, status codes, top IPs, query strings and referrers cover much of the ground.
 - [ ] Landing pages count `/feed/` and `.php` endpoints as pages on WordPress sites; tune `crates/core/data/sources.toml`.
-- [ ] Fetching logs over SSH (9).
+- [ ] SSH fetch downloads a grown live log in full each time, though only its new lines are ingested (9.1). Fetching just the new tail needs ingest to read from a stream.
+- [ ] SSH fetch: one server per site (9.3); nothing scheduled, a fetch runs when asked; the app has no "fetch again and replace" switch (`fetch --force` in the CLI).
 - [ ] A product brief for the Impeccable design skill (`/impeccable init`) and a scored design critique; only a polish pass was done.
 
 ## Done
@@ -78,6 +83,7 @@ Things built and tested in the engine or from the command line, but not exercise
 - [x] Country and ASN lookup from DB-IP Lite or the user's MaxMind files (5.2)
 - [x] Re-enrich: user agents, bot verification, geo, then rollups (5.4, partly; see gaps)
 - [x] "Behind a caching CDN" site setting that adds a note to every report (4.2)
+- [x] Fetching logs over SSH (9): download to a temporary file, then ingest as usual. One remote per site in `meta`; listing with new / changed / fetched / old states; unchanged files are not downloaded again; hosts, path patterns and the file names a server returns are all validated; download size is capped at what the listing announced. `crates/core/src/remote.rs`
 
 ### Reports
 
@@ -93,12 +99,15 @@ Things built and tested in the engine or from the command line, but not exercise
 
 - [x] `site`, `ingest`, `report`, `reports`, `db`, `ranges`, `geo`, `reenrich`, `blocklist` (7.1)
 - [x] `--json`, `--offline`, `--dns`, `--wait-lock`, exit code 75 when a site is locked
+- [x] `remote set|show|remove|list` and `fetch` (9.7)
 
 ### Desktop app
 
 - [x] Tauri 2 with Vue 3 and Nuxt UI: sites, ingest with drag and drop and progress, every report, storage, settings (8)
 - [x] Filter bar with active-filter strip, clickable cells that filter every report, hourly or daily charts chosen automatically
 - [x] Block-list selection with a preview before copying
+- [x] "Fetch from a server" on the Ingest screen: set-up form, "Check server" listing, "Fetch new files" with the same progress, cancel and results as a local ingest
+- [x] Ingest and fetch both say what happened to the bot IP ranges first: being updated, updated, already up to date, or not refreshed
 - [x] Light, dark or system appearance
 - [x] Single instance
 - [x] Content security policy; icons bundled so the app makes no requests of its own

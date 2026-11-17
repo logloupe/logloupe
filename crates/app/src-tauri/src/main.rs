@@ -14,6 +14,7 @@ use logloupe_core::ingest::{self, FileReport, IngestOptions};
 use logloupe_core::maintain::{
     self, CompactResult, IngestedFile, ReenrichResult, SettingsChange, SiteEntry, SiteStats,
 };
+use logloupe_core::remote::{self, FetchOptions, FetchReport, Listing, Remote, Ssh};
 use logloupe_core::report::{self, ReportParams, ReportResult};
 use logloupe_core::store::{DataDir, Mode, OpenOptions, SettingsPatch, SiteSettings, Store};
 use serde::Serialize;
@@ -142,6 +143,148 @@ struct IngestOutcome {
     files: Vec<FileReport>,
     /// Problems refreshing the bot IP ranges before the ingest, if any.
     range_notes: Vec<String>,
+    ranges: RangeState,
+}
+
+/// What happened to the bot IP ranges before an ingest or a fetch.
+#[derive(Clone, Copy, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum RangeState {
+    /// Older than a day, so they were fetched again.
+    Updated,
+    /// Fetched within the last day: nothing to do.
+    Fresh,
+    /// Working offline: not checked.
+    Skipped,
+}
+
+/// Refreshes the bot IP ranges when they are older than a day, unless
+/// working offline. Emits `ranges-refresh` when a download starts, so the
+/// screen can say so. Returns notes about anything that could not be updated.
+fn refresh_ranges(
+    app: &AppHandle,
+    dir: &DataDir,
+    offline: bool,
+) -> logloupe_core::Result<(RangeState, Vec<String>)> {
+    let mut notes = Vec::new();
+    if offline {
+        return Ok((RangeState::Skipped, notes));
+    }
+    let registry = Registry::load(dir.root())?;
+    if !ranges::any_stale(dir.root(), &registry) {
+        return Ok((RangeState::Fresh, notes));
+    }
+    let _ = app.emit("ranges-refresh", ());
+    match ranges::refresh_if_stale(dir.root(), &registry) {
+        Some(Ok(outcomes)) => notes.extend(outcomes.into_iter().filter(|o| !o.updated).map(|o| {
+            format!(
+                "Kept the previous IP ranges for {}: {}",
+                o.operator,
+                o.message.unwrap_or_default()
+            )
+        })),
+        Some(Err(e)) => notes.push(format!("Could not update bot IP ranges: {e}")),
+        None => {}
+    }
+    Ok((RangeState::Updated, notes))
+}
+
+#[tauri::command]
+async fn get_remote(state: State<'_, AppState>, slug: String) -> CommandResult<Option<Remote>> {
+    let (dir, opts) = (state.dir.clone(), state.opts.clone());
+    blocking(move || remote::get(&Store::open(&dir, &slug, Mode::ReadOnly, &opts)?)).await
+}
+
+#[tauri::command]
+async fn set_remote(
+    state: State<'_, AppState>,
+    slug: String,
+    remote: Remote,
+) -> CommandResult<Remote> {
+    let (dir, opts) = (state.dir.clone(), state.opts.clone());
+    blocking(move || remote::set(&Store::open(&dir, &slug, Mode::ReadWrite, &opts)?, &remote)).await
+}
+
+#[tauri::command]
+async fn remove_remote(state: State<'_, AppState>, slug: String) -> CommandResult<bool> {
+    let (dir, opts) = (state.dir.clone(), state.opts.clone());
+    blocking(move || remote::remove(&Store::open(&dir, &slug, Mode::ReadWrite, &opts)?)).await
+}
+
+/// Lists the files on the site's server. Connects over SSH.
+#[tauri::command]
+async fn list_remote(
+    state: State<'_, AppState>,
+    slug: String,
+    days: Option<u32>,
+) -> CommandResult<Listing> {
+    let (dir, opts) = (state.dir.clone(), state.opts.clone());
+    blocking(move || {
+        remote::list(
+            &Store::open(&dir, &slug, Mode::ReadOnly, &opts)?,
+            days,
+            &Ssh::new(),
+        )
+    })
+    .await
+}
+
+#[derive(Clone, Serialize)]
+struct FetchProgress {
+    phase: remote::Phase,
+    path: String,
+    bytes_done: u64,
+    bytes_total: u64,
+    rows: u64,
+    file: usize,
+    files: usize,
+}
+
+#[derive(Serialize)]
+struct FetchOutcome {
+    report: FetchReport,
+    range_notes: Vec<String>,
+    ranges: RangeState,
+}
+
+/// Fetches new and changed logs from the site's server and ingests them.
+/// `cancel_ingest` stops it.
+#[tauri::command]
+async fn fetch_remote(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    slug: String,
+    options: FetchOptions,
+    offline: bool,
+) -> CommandResult<FetchOutcome> {
+    let (dir, opts) = (state.dir.clone(), state.opts.clone());
+    let cancel = Arc::clone(&state.cancel);
+    cancel.store(false, Ordering::Relaxed);
+    blocking(move || {
+        let (ranges, range_notes) = refresh_ranges(&app, &dir, offline)?;
+        let mut store = Store::open(&dir, &slug, Mode::ReadWrite, &opts)?;
+        let mut progress = |p: remote::Progress<'_>| {
+            let _ = app.emit(
+                "fetch-progress",
+                FetchProgress {
+                    phase: p.phase,
+                    path: p.path.to_owned(),
+                    bytes_done: p.bytes_done,
+                    bytes_total: p.bytes_total,
+                    rows: p.rows,
+                    file: p.file,
+                    files: p.files,
+                },
+            );
+        };
+        let report = remote::fetch(&mut store, &options, &Ssh::new(), &mut progress, &cancel)?;
+        Ok(FetchOutcome {
+            report,
+            range_notes,
+            ranges,
+        })
+    })
+    .await
 }
 
 #[tauri::command]
@@ -157,23 +300,7 @@ async fn ingest_files(
     let cancel = Arc::clone(&state.cancel);
     cancel.store(false, Ordering::Relaxed);
     blocking(move || {
-        let mut range_notes = Vec::new();
-        if !offline {
-            let registry = Registry::load(dir.root())?;
-            match ranges::refresh_if_stale(dir.root(), &registry) {
-                Some(Ok(outcomes)) => {
-                    range_notes.extend(outcomes.into_iter().filter(|o| !o.updated).map(|o| {
-                        format!(
-                            "Kept the previous IP ranges for {}: {}",
-                            o.operator,
-                            o.message.unwrap_or_default()
-                        )
-                    }))
-                }
-                Some(Err(e)) => range_notes.push(format!("Could not update bot IP ranges: {e}")),
-                None => {}
-            }
-        }
+        let (ranges, range_notes) = refresh_ranges(&app, &dir, offline)?;
         let mut store = Store::open(&dir, &slug, Mode::ReadWrite, &opts)?;
         let mut progress = |p: ingest::Progress<'_>| {
             let _ = app.emit(
@@ -187,7 +314,11 @@ async fn ingest_files(
             );
         };
         let files = ingest::ingest(&mut store, &paths, &options, &mut progress, &cancel)?;
-        Ok(IngestOutcome { files, range_notes })
+        Ok(IngestOutcome {
+            files,
+            range_notes,
+            ranges,
+        })
     })
     .await
 }
@@ -407,6 +538,11 @@ fn main() {
             remove_site,
             ingest_files,
             cancel_ingest,
+            get_remote,
+            set_remote,
+            remove_remote,
+            list_remote,
+            fetch_remote,
             list_reports,
             run_report,
             export_csv,

@@ -53,6 +53,11 @@ pub enum Error {
     #[error("unknown report '{0}'")]
     UnknownReport(String),
 
+    /// Fetching from a server failed (spec 9). The message is already
+    /// stripped of control characters; some of it comes from the server.
+    #[error("{host}: {message}")]
+    Remote { host: String, message: String },
+
     #[error("cancelled")]
     Cancelled,
 }
@@ -71,6 +76,7 @@ impl Error {
             Error::WrongFormat { .. } => "wrong_format",
             Error::Overlap { .. } => "overlap",
             Error::UnknownReport(_) => "unknown_report",
+            Error::Remote { .. } => "remote_error",
             Error::Cancelled => "cancelled",
         }
     }

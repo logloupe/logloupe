@@ -4,7 +4,7 @@ Analyses web server access logs: traffic sources, bots, abuse and crawl problems
 
 One Rust engine (`crates/core`) with a command-line tool (`crates/cli`) and a desktop app (`crates/app`). The full design is in [spec.md](spec.md), and what is done and what is left is in [TODO.md](TODO.md).
 
-Status: **early release.** Working today: ingest of plain and gzip combined-format logs (nginx, Apache, cPanel), de-duplication, traffic, bot and abuse reports, bot verification, country and network lookup, and block lists. Not built yet: custom log formats and the SEO crawl reports. The desktop app is only built for Windows so far.
+Status: **early release.** Working today: ingest of plain and gzip combined-format logs (nginx, Apache, cPanel), de-duplication, traffic, bot and abuse reports, bot verification, country and network lookup, and block lists. Built since the last release: fetching logs from a server over SSH. Not built yet: custom log formats and the SEO crawl reports. The desktop app is only built for Windows so far.
 
 ## Download and install
 
@@ -32,6 +32,26 @@ logloupe db stats
 - `report --format json` writes exactly one JSON document to stdout (the envelope in spec 7.2). Other commands take `--json`.
 - Ingesting a file twice is a no-op. A log that has grown since last time only adds its new lines.
 - Exit codes: 0 success, 1 failure, 2 usage error, 75 site in use by another process (retry, or pass `--wait-lock <seconds>`).
+
+## Fetching logs from a server
+
+Not in a release yet; build from source to use it.
+
+```
+logloupe remote set example --host web1 --path '/var/log/nginx/access.log*'
+logloupe remote list example        # what is on the server, and what a fetch would download
+logloupe fetch example              # download new and changed files, ingest them, delete the copies
+logloupe fetch example --days 30    # the first time, on a server with years of archives
+```
+
+- `--host` is a host alias from your SSH config, or `user@host`. Logloupe runs your computer's own `ssh` program, so it uses your config, keys and agent. It stores no keys or passwords and never asks for one: **`ssh <host>` must already work in a terminal without asking for anything** (host key accepted, key in the agent or without a passphrase).
+- `--path` takes wildcards and can be repeated. Quote it so your own shell does not expand it. Common places: `/var/log/nginx/access.log*`; on cPanel, `~/logs/<domain>-*.gz` for the monthly archives; on ISPConfig, `~/log/*access.log*`.
+- The account must be able to read the logs. On Debian and Ubuntu the nginx and Apache logs belong to the `adm` group, so a deploy user usually cannot: `remote list` then reports the files as unreadable. Fix it on the server as root with `usermod -aG adm <user>` (it takes effect at the next login).
+- Each file is copied to a temporary file in the data directory, ingested like any local file, then deleted. A file that has not changed since the last fetch is not downloaded again. One that has grown is downloaded in full, but only its new lines are added.
+- Nothing is written to the server. The only commands run there are `stat`, `test`, `echo` and `head`.
+- A login script on the server that prints text for non-interactive logins breaks the download (it does the same to `scp`); Logloupe detects this and says so.
+
+In the app this is on the Ingest screen, under "Fetch from a server". The design and the rules for what is accepted as a host or path are in [spec.md](spec.md) section 9.
 
 ## Desktop app
 
@@ -75,7 +95,8 @@ IP geolocation by [DB-IP](https://db-ip.com), used under its Creative Commons At
 
 ## Security and privacy notes
 
-- **Nothing is sent anywhere.** The only outbound requests are the bot IP lists, the DB-IP database download, and (later) sitemap fetches. Each is started by the user or can be turned off with `--offline` / "Work offline". The app bundles its icons and runs under a content security policy that blocks every other connection.
+- **Nothing is sent anywhere.** The only outbound requests are the bot IP lists, the DB-IP database download, reverse DNS lookups, SSH connections to a server you have set up for a site, and (later) sitemap fetches. Each is started by the user or can be turned off with `--offline` / "Work offline". The app bundles its icons and runs under a content security policy that blocks every other connection.
+- **Fetching over SSH treats both ends as untrusted.** The host and the paths you enter are checked before they reach `ssh` or the server's shell: a host cannot start with `-` (which `ssh` would read as an option), and a path may hold only letters, digits, a few punctuation marks and the wildcards `* ? [ ]`. File names the server sends back are checked the same way and quoted, a download is cut off the moment it exceeds the size the server announced, and `ssh` runs in batch mode so it can never sit waiting for a password.
 - **Access logs are personal data.** They contain IP addresses. Keep `samples/` and site databases out of version control and backups you do not control.
 - **Log content is untrusted.** Paths, referrers and user agents are written by whoever sent the request. They are stored through DuckDB's appender, never spliced into SQL; filter values are escaped; report connections are read-only with DuckDB's external file and network access switched off. CSV exports prefix cells that start with `=`, `+`, `-` or `@` with an apostrophe so a spreadsheet does not run them as formulas. The CLI replaces control characters before printing.
 - **Site names are validated** wherever they are used, so a name such as `../other` cannot make the tool open or delete a file outside the data directory.

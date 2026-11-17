@@ -144,6 +144,16 @@ export async function mockInvoke<T>(command: string, args?: Record<string, unkno
         rows_skipped: 0, ingested_at: '2026-11-15T18:45:00Z',
       },
     ],
+    get_remote: () => ({ host: 'web1', port: null, paths: ['/var/log/nginx/access.log*'] }),
+    list_remote: () => ({
+      host: 'web1',
+      files: [
+        { path: '/var/log/nginx/access.log.2.gz', size_bytes: 1_900_000, modified: 1_794_700_800, state: 'fetched' },
+        { path: '/var/log/nginx/access.log.1', size_bytes: 14_500_000, modified: 1_794_787_200, state: 'changed' },
+        { path: '/var/log/nginx/access.log', size_bytes: 6_200_000, modified: 1_794_850_000, state: 'new' },
+      ],
+      notes: [],
+    }),
     ranges_status: () => [
       {
         operator: 'google', name: 'Google', sources: 1, prefixes: 317, retired: 0, tracked_since: '2026-11-15',

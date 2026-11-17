@@ -11,6 +11,7 @@ use chrono::{DateTime, NaiveDate};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use logloupe_core::bots::{Registry, ranges as bot_ranges};
 use logloupe_core::ingest::{self, FileReport, FileStatus, IngestOptions};
+use logloupe_core::remote::{self, FetchOptions, FileState, Phase, Remote, Ssh};
 use logloupe_core::report::{self, Filters, Granularity, ReportParams, ReportResult, Table};
 use logloupe_core::store::{DataDir, Mode, OpenOptions, SettingsPatch, SiteSettings, Store};
 use logloupe_core::{Error, Result, maintain};
@@ -67,6 +68,11 @@ enum Command {
     Site(SiteCommand),
     /// Ingest log files (plain or gzip) into a site
     Ingest(IngestArgs),
+    /// Fetch new and changed logs from the site's server over SSH and ingest them
+    Fetch(FetchArgs),
+    /// The server a site's logs are fetched from
+    #[command(subcommand)]
+    Remote(RemoteCommand),
     /// Run a report
     Report(ReportArgs),
     /// List available reports
@@ -183,6 +189,56 @@ struct IngestArgs {
     /// Skip reverse DNS lookups
     #[arg(long = "no-dns")]
     no_dns: bool,
+}
+
+#[derive(Args)]
+struct FetchArgs {
+    slug: String,
+    /// Leave out files not modified in the last N days
+    #[arg(long, value_name = "N")]
+    days: Option<u32>,
+    /// Fetch files again even when they have not changed, replacing their rows
+    #[arg(long)]
+    force: bool,
+    /// Log format: auto or a format name
+    #[arg(long, default_value = "auto")]
+    format: String,
+    /// Override the site's overlap policy: error, skip or allow
+    #[arg(long)]
+    overlap: Option<String>,
+    /// Skip reverse DNS lookups
+    #[arg(long = "no-dns")]
+    no_dns: bool,
+}
+
+#[derive(Subcommand)]
+enum RemoteCommand {
+    /// Set the server and the log paths on it
+    Set {
+        slug: String,
+        /// An SSH host alias from your SSH config, or user@host.
+        /// `ssh <host>` must already work without asking for anything
+        #[arg(long)]
+        host: String,
+        /// Port, when it is not 22 and not in your SSH config
+        #[arg(long)]
+        port: Option<u16>,
+        /// A path on the server, with wildcards; repeat for each.
+        /// Quote it so your own shell does not expand it
+        #[arg(long = "path", value_name = "PATTERN", required = true)]
+        paths: Vec<String>,
+    },
+    /// Show the server set for a site
+    Show { slug: String },
+    /// Forget the server; logs already fetched stay
+    Remove { slug: String },
+    /// List the files on the server and what a fetch would do with each
+    List {
+        slug: String,
+        /// Mark files not modified in the last N days as old
+        #[arg(long, value_name = "N")]
+        days: Option<u32>,
+    },
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -402,6 +458,8 @@ fn run(cli: Cli, json: bool) -> Result<()> {
     match cli.command {
         Command::Site(command) => site(&app, command),
         Command::Ingest(args) => run_ingest(&app, args),
+        Command::Fetch(args) => run_fetch(&app, args),
+        Command::Remote(command) => remote_command(&app, command),
         Command::Report(args) => run_report(&app, args),
         Command::Reports => list_reports(&app),
         Command::Db(command) => db(&app, command),
@@ -676,9 +734,7 @@ fn print_file_report(app: &App, report: &FileReport) {
             } else {
                 "ingested"
             };
-            let megabytes = std::fs::metadata(&report.path)
-                .map(|m| m.len() as f64 / 1e6)
-                .unwrap_or(0.0);
+            let megabytes = report.size_bytes as f64 / 1e6;
             println!(
                 "{name}: {verb} {} rows ({} bad, {} skipped) in {:.1}s [{}{}]  {} to {} UTC  {:.0} MB/s",
                 number(report.rows_ok),
@@ -703,6 +759,193 @@ fn print_file_report(app: &App, report: &FileReport) {
             app.note(&format!("    {}: {}", bad.reason, bad.line));
         }
     }
+}
+
+/// A serialisable result with the site's name added, for `--json`.
+fn with_site(slug: &str, value: &impl serde::Serialize) -> Json {
+    let mut json = serde_json::to_value(value).expect("results serialise");
+    if let Json::Object(map) = &mut json {
+        map.insert("site".to_owned(), Json::String(slug.to_owned()));
+    }
+    json
+}
+
+fn need_network(app: &App, what: &str) -> Result<()> {
+    if app.offline {
+        return Err(Error::Invalid(format!(
+            "{what} connects to the server; remove --offline"
+        )));
+    }
+    Ok(())
+}
+
+fn print_remote(remote: &Remote) {
+    println!("{:<8}{}", "server", remote.host);
+    if let Some(port) = remote.port {
+        println!("{:<8}{port}", "port");
+    }
+    for path in &remote.paths {
+        println!("{:<8}{path}", "path");
+    }
+}
+
+fn remote_command(app: &App, command: RemoteCommand) -> Result<()> {
+    match command {
+        RemoteCommand::Set {
+            slug,
+            host,
+            port,
+            paths,
+        } => {
+            let store = app.open(&slug, Mode::ReadWrite)?;
+            let stored = remote::set(&store, &Remote { host, port, paths })?;
+            if app.json {
+                app.emit(&json!({ "site": slug, "remote": stored }));
+            } else {
+                print_remote(&stored);
+                println!(
+                    "\nCheck it with `logloupe remote list {slug}`, then run `logloupe fetch {slug}`."
+                );
+            }
+        }
+        RemoteCommand::Show { slug } => {
+            let store = app.open(&slug, Mode::ReadOnly)?;
+            let found = remote::get(&store)?;
+            if app.json {
+                app.emit(&json!({ "site": slug, "remote": found }));
+            } else {
+                match found {
+                    Some(found) => print_remote(&found),
+                    None => println!(
+                        "No server set. Add one with: logloupe remote set {slug} --host <alias> --path '<pattern>'"
+                    ),
+                }
+            }
+        }
+        RemoteCommand::Remove { slug } => {
+            let store = app.open(&slug, Mode::ReadWrite)?;
+            let removed = remote::remove(&store)?;
+            if app.json {
+                app.emit(&json!({ "site": slug, "removed": removed }));
+            } else if removed {
+                println!("Removed the server from '{slug}'. Logs already fetched are kept.");
+            } else {
+                println!("'{slug}' had no server set.");
+            }
+        }
+        RemoteCommand::List { slug, days } => {
+            need_network(app, "remote list")?;
+            let store = app.open(&slug, Mode::ReadOnly)?;
+            let listing = remote::list(&store, days, &Ssh::new())?;
+            if app.json {
+                app.emit(&with_site(&slug, &listing));
+                return Ok(());
+            }
+            if listing.files.is_empty() {
+                println!("No files on {} match.", listing.host);
+            } else {
+                let rows: Vec<Vec<String>> = listing
+                    .files
+                    .iter()
+                    .map(|f| {
+                        vec![
+                            match f.state {
+                                FileState::New => "new",
+                                FileState::Changed => "changed",
+                                FileState::Fetched => "fetched",
+                                FileState::Old => "old",
+                            }
+                            .to_owned(),
+                            bytes(f.size_bytes),
+                            iso(Some(f.modified)),
+                            f.path.clone(),
+                        ]
+                    })
+                    .collect();
+                print_table(&["state", "size", "modified (UTC)", "path"], &rows);
+                let pending = listing
+                    .files
+                    .iter()
+                    .filter(|f| matches!(f.state, FileState::New | FileState::Changed));
+                println!(
+                    "\n`logloupe fetch {slug}` would download {} file(s), {}.",
+                    pending.clone().count(),
+                    bytes(pending.map(|f| f.size_bytes).sum())
+                );
+            }
+            for note in &listing.notes {
+                app.note(&format!("note: {note}"));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn run_fetch(app: &App, args: FetchArgs) -> Result<()> {
+    need_network(app, "fetch")?;
+    let options = FetchOptions {
+        days: args.days,
+        ingest: IngestOptions {
+            format: (args.format != "auto").then(|| args.format.clone()),
+            force: args.force,
+            overlap: args.overlap.as_deref().map(str::parse).transpose()?,
+            dns: app.dns && !args.no_dns,
+        },
+    };
+
+    refresh_ranges(app);
+    let mut store = app.open(&args.slug, Mode::ReadWrite)?;
+    let show_progress = !app.quiet && std::io::stderr().is_terminal();
+    let mut progress = |p: remote::Progress<'_>| {
+        if show_progress {
+            let percent = (p.bytes_done * 100)
+                .checked_div(p.bytes_total)
+                .unwrap_or(100);
+            let name = p.path.rsplit('/').next().unwrap_or(p.path);
+            let doing = match p.phase {
+                Phase::Download => "downloading".to_owned(),
+                Phase::Ingest => format!("ingesting, {} rows", number(p.rows)),
+            };
+            eprint!(
+                "\r[{}/{}] {name}: {percent:>3}% {doing}      ",
+                p.file, p.files
+            );
+            let _ = std::io::stderr().flush();
+        }
+    };
+    let cancel = AtomicBool::new(false);
+    let result = remote::fetch(&mut store, &options, &Ssh::new(), &mut progress, &cancel);
+    if show_progress {
+        eprint!("\r{:78}\r", "");
+    }
+    let report = result?;
+
+    if app.json {
+        app.emit(&with_site(&args.slug, &report));
+        return Ok(());
+    }
+    for file in &report.files {
+        print_file_report(app, file);
+    }
+    let total: u64 = report.files.iter().map(|r| r.rows_ok).sum();
+    let mut summary = format!(
+        "Fetched {} file(s) from {} ({}), {} rows added",
+        report.files.len(),
+        report.host,
+        bytes(report.bytes_downloaded),
+        number(total)
+    );
+    if report.already_fetched > 0 {
+        summary.push_str(&format!("; {} unchanged", report.already_fetched));
+    }
+    if report.too_old > 0 {
+        summary.push_str(&format!("; {} older than --days left out", report.too_old));
+    }
+    println!("{summary}.");
+    for note in &report.notes {
+        app.note(&format!("note: {note}"));
+    }
+    Ok(())
 }
 
 fn run_report(app: &App, args: ReportArgs) -> Result<()> {

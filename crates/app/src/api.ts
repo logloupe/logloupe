@@ -142,6 +142,7 @@ export interface FileReport {
   file_id: number | null
   format: string | null
   gzip: boolean
+  size_bytes: number
   rows_ok: number
   rows_bad: number
   rows_skipped: number
@@ -151,9 +152,61 @@ export interface FileReport {
   seconds: number
 }
 
+/** The server a site's logs are fetched from over SSH. */
+export interface Remote {
+  host: string
+  port?: number | null
+  paths: string[]
+}
+
+export interface RemoteFile {
+  path: string
+  size_bytes: number
+  /** Unix seconds, UTC. */
+  modified: number
+  state: 'new' | 'changed' | 'fetched' | 'old'
+}
+
+export interface RemoteListing {
+  host: string
+  files: RemoteFile[]
+  notes: string[]
+}
+
+export interface FetchOptions {
+  days?: number | null
+  ingest?: IngestOptions
+}
+
+export interface FetchReport {
+  host: string
+  files: FileReport[]
+  already_fetched: number
+  too_old: number
+  bytes_downloaded: number
+  notes: string[]
+}
+
+export interface FetchOutcome {
+  report: FetchReport
+  range_notes: string[]
+  ranges: RangeState
+}
+
+/** What happened to the bot IP ranges before an ingest or a fetch. */
+export type RangeState = 'updated' | 'fresh' | 'skipped'
+
+export interface FetchProgress extends IngestProgress {
+  phase: 'download' | 'ingest'
+  /** Which file this is, counting from 1, and of how many. */
+  file: number
+  files: number
+}
+
 export interface IngestOutcome {
   files: FileReport[]
   range_notes: string[]
+  ranges: RangeState
 }
 
 export interface IngestOptions {
@@ -241,6 +294,12 @@ export const api = {
   ingestFiles: (slug: string, paths: string[], options: IngestOptions, offline: boolean) =>
     call<IngestOutcome>('ingest_files', { slug, paths, options, offline }),
   cancelIngest: () => call<void>('cancel_ingest'),
+  getRemote: (slug: string) => call<Remote | null>('get_remote', { slug }),
+  setRemote: (slug: string, remote: Remote) => call<Remote>('set_remote', { slug, remote }),
+  removeRemote: (slug: string) => call<boolean>('remove_remote', { slug }),
+  listRemote: (slug: string, days: number | null) => call<RemoteListing>('list_remote', { slug, days }),
+  fetchRemote: (slug: string, options: FetchOptions, offline: boolean) =>
+    call<FetchOutcome>('fetch_remote', { slug, options, offline }),
   listReports: () => call<ReportListing[]>('list_reports'),
   runReport: (slug: string, name: string, params: ReportParams) =>
     call<ReportResult>('run_report', { slug, name, params }),

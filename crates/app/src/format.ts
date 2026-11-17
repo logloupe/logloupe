@@ -44,6 +44,11 @@ export function formatUtc(iso: string | null): string {
   return `${iso.slice(0, 10)} ${iso.slice(11, 16)} UTC`
 }
 
+/** Unix seconds → `2026-11-14 00:00 UTC`. */
+export function formatUnix(seconds: number): string {
+  return formatUtc(new Date(seconds * 1000).toISOString())
+}
+
 export function fileName(path: string): string {
   return path.split(/[\\/]/).pop() ?? path
 }

@@ -1,12 +1,16 @@
 <script setup lang="ts">
-// Ingest: drop or pick log files, watch progress, see what happened to each.
+// Ingest: drop or pick log files, or fetch them from a server, watch progress,
+// and see what happened to each.
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { open } from '@tauri-apps/plugin-dialog'
-import { api, errorCode, errorMessage, inTauri, type FileReport, type IngestProgress } from '../api'
+import { api, errorCode, errorMessage, inTauri, type FetchProgress, type FileReport, type IngestProgress, type RangeState } from '../api'
 import { loadSites, refreshReports, state } from '../state'
 import { fileName, formatNumber } from '../format'
+import RemoteFetch from '../components/RemoteFetch.vue'
+
+type Overlap = 'skip' | 'allow'
 
 const toast = useToast()
 
@@ -14,18 +18,42 @@ const queued = ref<string[]>([])
 const force = ref(false)
 const offline = ref(localStorage.getItem('logloupe.offline') === 'true')
 const running = ref(false)
-const progress = ref<IngestProgress | null>(null)
+const progress = ref<IngestProgress | FetchProgress | null>(null)
 const results = ref<FileReport[]>([])
 const notes = ref<string[]>([])
 const error = ref('')
-const overlapError = ref(false)
+const errorTitle = ref('')
+/** Set after an overlap error: runs the same thing again with a policy. */
+const retry = ref<((overlap: Overlap) => void) | null>(null)
 const dragging = ref(false)
+/** The bot IP ranges are being downloaded before the run proper starts. */
+const refreshingRanges = ref(false)
+/** What happened to the bot IP ranges before the last run. */
+const rangeState = ref<RangeState | null>(null)
+const rangeText: Record<RangeState, string> = {
+  updated: 'Bot IP ranges were updated before this run.',
+  fresh: 'Bot IP ranges were already up to date (fetched within the last day), so they were not downloaded again.',
+  skipped: 'Working offline: bot IP ranges were not refreshed.',
+}
 const unlisten: UnlistenFn[] = []
 
 const percent = computed(() => {
   const p = progress.value
   if (!p || p.bytes_total === 0) return 0
   return Math.min(100, Math.round((p.bytes_done / p.bytes_total) * 100))
+})
+
+/** What is happening now, for the progress panel. */
+const progressLabel = computed(() => {
+  const p = progress.value
+  if (!p) return refreshingRanges.value ? 'Updating bot IP ranges…' : 'Starting…'
+  if (!('phase' in p)) return fileName(p.path)
+  const doing = p.phase === 'download' ? 'Downloading' : 'Ingesting'
+  return `File ${p.file} of ${p.files} · ${doing} ${fileName(p.path)}`
+})
+const showRows = computed(() => {
+  const p = progress.value
+  return !!p && (!('phase' in p) || p.phase === 'ingest')
 })
 
 function add(paths: string[]) {
@@ -41,26 +69,36 @@ async function pick() {
   if (picked) add(Array.isArray(picked) ? picked : [picked])
 }
 
-async function start(overlap: 'skip' | 'allow' | null = null) {
-  if (!state.slug || queued.value.length === 0) return
+interface Done {
+  files: FileReport[]
+  notes: string[]
+  ranges: RangeState
+  /** The success message. */
+  title: string
+}
+
+/** Runs an ingest or a fetch with the shared progress, results and errors. */
+async function run(what: 'Ingest' | 'Fetch', again: (overlap: Overlap) => void, work: () => Promise<Done>) {
   running.value = true
   state.busy = true
   error.value = ''
-  overlapError.value = false
+  errorTitle.value = `${what} stopped`
+  retry.value = null
   results.value = []
   notes.value = []
   progress.value = null
+  refreshingRanges.value = false
+  rangeState.value = null
   localStorage.setItem('logloupe.offline', String(offline.value))
   try {
-    const outcome = await api.ingestFiles(state.slug, queued.value, { force: force.value, overlap, dns: state.dns && !offline.value }, offline.value)
-    results.value = outcome.files
-    notes.value = outcome.range_notes
-    queued.value = []
-    const added = outcome.files.reduce((sum, f) => sum + f.rows_ok, 0)
-    toast.add({ title: `Added ${formatNumber(added)} rows`, color: 'success' })
+    const done = await work()
+    results.value = done.files
+    notes.value = done.notes
+    rangeState.value = done.ranges
+    toast.add({ title: done.title, color: 'success' })
   } catch (e) {
-    overlapError.value = errorCode(e) === 'overlap'
-    error.value = errorCode(e) === 'cancelled' ? 'Ingest cancelled. Nothing from the file in progress was kept.' : errorMessage(e)
+    if (errorCode(e) === 'overlap') retry.value = again
+    error.value = errorCode(e) === 'cancelled' ? `${what} cancelled. Nothing from the file in progress was kept.` : errorMessage(e)
   } finally {
     running.value = false
     state.busy = false
@@ -68,6 +106,30 @@ async function start(overlap: 'skip' | 'allow' | null = null) {
     await loadSites()
     refreshReports()
   }
+}
+
+const rowsAdded = (files: FileReport[]) => formatNumber(files.reduce((sum, f) => sum + f.rows_ok, 0))
+
+async function start(overlap: Overlap | null = null) {
+  if (!state.slug || queued.value.length === 0) return
+  const slug = state.slug
+  await run('Ingest', start, async () => {
+    const outcome = await api.ingestFiles(slug, queued.value, { force: force.value, overlap, dns: state.dns && !offline.value }, offline.value)
+    queued.value = []
+    return { files: outcome.files, notes: outcome.range_notes, ranges: outcome.ranges, title: `Added ${rowsAdded(outcome.files)} rows` }
+  })
+}
+
+async function startFetch(days: number | null, overlap: Overlap | null = null) {
+  if (!state.slug || running.value) return
+  const slug = state.slug
+  await run('Fetch', (policy) => startFetch(days, policy), async () => {
+    const { report, range_notes, ranges } = await api.fetchRemote(slug, { days, ingest: { overlap, dns: state.dns && !offline.value } }, offline.value)
+    const title = report.files.length
+      ? `Fetched ${report.files.length} file(s), added ${rowsAdded(report.files)} rows`
+      : `Nothing new on ${report.host}`
+    return { files: report.files, notes: [...range_notes, ...report.notes], ranges, title }
+  })
 }
 
 const statusLabel: Record<FileReport['status'], string> = {
@@ -86,6 +148,8 @@ const statusColour: Record<FileReport['status'], 'success' | 'info' | 'neutral'>
 onMounted(async () => {
   if (!inTauri) return
   unlisten.push(await listen<IngestProgress>('ingest-progress', (event) => (progress.value = event.payload)))
+  unlisten.push(await listen<FetchProgress>('fetch-progress', (event) => (progress.value = event.payload)))
+  unlisten.push(await listen('ranges-refresh', () => (refreshingRanges.value = true)))
   unlisten.push(
     await getCurrentWebview().onDragDropEvent((event) => {
       if (event.payload.type === 'over' || event.payload.type === 'enter') dragging.value = true
@@ -106,8 +170,9 @@ onBeforeUnmount(() => unlisten.forEach((stop) => stop()))
     <div>
       <h1 class="text-xl font-semibold text-highlighted">Ingest logs</h1>
       <p class="mt-0.5 text-sm text-muted">
-        Add access logs to <span class="font-medium text-highlighted">{{ state.slug || 'a site' }}</span>. Plain and gzip
-        files both work. A file you have already added is skipped, and a log that has grown only adds its new lines.
+        Add access logs to <span class="font-medium text-highlighted">{{ state.slug || 'a site' }}</span> from this
+        computer or straight from your server. Plain and gzip files both work. A file you have already added is skipped,
+        and a log that has grown only adds its new lines.
       </p>
     </div>
 
@@ -148,11 +213,13 @@ onBeforeUnmount(() => unlisten.forEach((stop) => stop()))
         </footer>
       </section>
 
+      <RemoteFetch v-model:offline="offline" :running="running" @fetch="(days) => startFetch(days)" />
+
       <section v-if="running" class="rounded-lg border border-default bg-default p-4">
         <div class="flex items-center justify-between gap-4 text-sm">
-          <span class="truncate text-highlighted">{{ progress ? fileName(progress.path) : 'Starting…' }}</span>
+          <span class="truncate text-highlighted">{{ progressLabel }}</span>
           <span class="shrink-0 tabular-nums text-muted">
-            {{ percent }}%<template v-if="progress"> · {{ formatNumber(progress.rows) }} rows</template>
+            {{ percent }}%<template v-if="progress && showRows"> · {{ formatNumber(progress.rows) }} rows</template>
           </span>
         </div>
         <UProgress class="mt-2" :model-value="percent" />
@@ -161,11 +228,11 @@ onBeforeUnmount(() => unlisten.forEach((stop) => stop()))
         </div>
       </section>
 
-      <UAlert v-if="error" color="error" variant="subtle" icon="i-lucide-triangle-alert" title="Ingest stopped" :description="error" />
-      <div v-if="overlapError && queued.length" class="flex flex-wrap items-center gap-2 text-sm">
+      <UAlert v-if="error" color="error" variant="subtle" icon="i-lucide-triangle-alert" :title="errorTitle" :description="error" />
+      <div v-if="retry && !running" class="flex flex-wrap items-center gap-2 text-sm">
         <span class="text-muted">This file covers a time range you already have. Choose what to do:</span>
-        <UButton label="Skip lines already covered" size="sm" color="neutral" variant="outline" @click="start('skip')" />
-        <UButton label="Ingest everything" size="sm" color="neutral" variant="outline" @click="start('allow')" />
+        <UButton label="Skip lines already covered" size="sm" color="neutral" variant="outline" @click="retry('skip')" />
+        <UButton label="Ingest everything" size="sm" color="neutral" variant="outline" @click="retry('allow')" />
       </div>
 
       <UAlert
@@ -176,6 +243,11 @@ onBeforeUnmount(() => unlisten.forEach((stop) => stop()))
         icon="i-lucide-info"
         :title="note"
       />
+
+      <p v-if="rangeState && !running" class="flex items-center gap-2 text-sm text-muted">
+        <UIcon :name="rangeState === 'skipped' ? 'i-lucide-cloud-off' : 'i-lucide-shield-check'" class="size-4 shrink-0" />
+        {{ rangeText[rangeState] }}
+      </p>
 
       <section v-if="results.length" class="rounded-lg border border-default bg-default">
         <header class="border-b border-default px-4 py-2.5">
