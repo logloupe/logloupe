@@ -10,7 +10,7 @@ Last updated: 2026-11-18. The history was rewritten on 2026-11-16, so commit has
 - The owner uses the installed app on real client logs.
 - The repository is `logloupe/logloupe` on GitHub, **public** since 2026-11-17. Release 0.1.0 was published on 2026-11-17 after the owner installed it over the previous copy and confirmed the data was kept. It is unsigned. The website at logloupe.com is built in a separate session. Version 0.2.0 (SSH fetch and the SEO crawl reports) was tagged on 2026-11-18; the workflow builds it into a **draft** release, which is not public until the owner has installed it and published it. Until then the website's brief still says both features are unreleased; tell that session when the draft is published.
 - The project lives in `C:\log-analyser`. It was moved off the USB drive `D:` on 2026-11-17 after that drive kept disconnecting; the old copy on `D:` is stale.
-- 97 tests, all passing. `cargo clippy` is clean with warnings as errors.
+- 101 tests, all passing. `cargo clippy` is clean with warnings as errors.
 
 ## Next up, in order
 
@@ -23,7 +23,7 @@ Last updated: 2026-11-18. The history was rewritten on 2026-11-16, so commit has
 - [ ] **Faster release builds**: the first release run took 1 h 24 min. On Windows the installer step took 44 minutes and the command-line step after it another 37, which means DuckDB was compiled twice; find out why the second `cargo build -p logloupe` does not reuse the first build (different features or environment under `tauri build`) and build both in one pass. The build cache is also not shared between tags.
 - [ ] **Updater**: Tauri's updater plugin, checking GitHub releases. Needs the repository public and an update signing key pair (separate from code signing; the private key is the owner's to hold). Decided: a "Check for updates" button in Settings and no automatic check, because the app promises to make no requests the user did not start.
 - [ ] **Server version**: an HTTP server exposing the same operations, serving the same frontend, with login (password first, then OpenID Connect) and a read-only API with tokens. Reads logs only from configured folders. The spec lists this as a non-goal and needs changing when work starts.
-- [ ] **API / MCP for AIdata**: comes almost free with the server version. Until then AIdata can call the `logloupe` binary and read its JSON. Owner's note, 2026-11-18: wanted so that an assistant can use the logs alongside the aidata.stream data; on a server it has to be reachable over HTTP, not only from a command line. Proposed and **not yet decided**: (1) `logloupe mcp`, a read-only MCP server over stdio in the command-line tool (list sites, list reports, run a report with the usual filters, block lists), which works today for an assistant on the same machine and over `ssh host logloupe mcp` for a server, with no listening port; (2) the same tools over streamable HTTP with a bearer token as part of the server version, since that is where login, tokens and TLS guidance belong. Log content is untrusted text and would reach the assistant as tool results, so the tools stay read-only and say so.
+- [ ] **MCP over HTTP** (7.3): the stdio server exists (`logloupe mcp`, see Done). What is left is a transport a client can reach by URL, which connectors added through claude.ai need: streamable HTTP with a bearer token, as part of the server version, since that is where login, tokens and TLS guidance belong. It hands each request body to the same `mcp::Server::handle`, so there are no tools to write again. Until then a server's logs are reached with `ssh host logloupe mcp`, and AIdata can also call the `logloupe` binary and read its JSON.
 
 ## Waiting on the owner
 
@@ -43,6 +43,7 @@ Things built and tested in the engine or from the command line, but not exercise
 - [ ] The owner ran a fetch from the "Fetch from a server" card on 2026-11-17 and it worked. The bot IP range status line and the "Do not refresh bot IP ranges first" switch were added after that and have not been looked at in the app.
 - [ ] **SEO crawl reports on real logs.** Built and tested on 2026-11-17 against a hand-written fixture and a generated 30 MB log, from the command line and by opening all six screens in the app. The owner tried the app build the same day and was happy with it; changes will follow from use. Not confirmed on a real site's logs, so possibly unseen: how the waste patterns read on real URLs, Googlebot Image / Video / News user agents, a site with assets crawled, a large site's speed (each screen runs two to four grouped queries over the crawler rows), and the "slowest" table, which needs a log with response times.
 - [ ] The "Bot address" (verified state) choice in the app's filter bar is new and was not clicked through; the SEO screens were only opened with no filters set.
+- [ ] **`logloupe mcp` with a real client.** Tested on 2026-11-18 through its own tests and by piping a whole session (initialize, tools/list, three tool calls) into the built program on generated data, where its block list matched the command line's. Never connected to an actual MCP client (Claude Code, Claude Desktop or another), so unseen: whether each accepts the handshake and the tool schemas as written, how an assistant copes with the size of a report, running it through `ssh`, and what a client does when a site is locked.
 - [ ] Column sorting and the time zone picker (2026-11-18) were driven in the real app on generated data: the three-click cycle on the All bots table, and searching for, choosing and saving a zone when editing a site. Not looked at: sorting on other screens, sorting then paging or exporting by hand, the picker in the "Add site" form, dark mode.
 
 - [ ] Dark mode on every screen (the chart is the likeliest problem).
@@ -108,6 +109,8 @@ Things built and tested in the engine or from the command line, but not exercise
 - [x] `site`, `ingest`, `report`, `reports`, `db`, `ranges`, `geo`, `reenrich`, `blocklist` (7.1)
 - [x] `--json`, `--offline`, `--dns`, `--wait-lock`, exit code 75 when a site is locked
 - [x] `remote set|show|remove|list` and `fetch` (9.7)
+- [x] `site timezones [search]`
+- [x] `mcp`: a read-only Model Context Protocol server on standard input and output, for AI assistants (7.3). Four tools: `list_sites`, `list_reports`, `run_report`, `block_list`. The protocol and tools are in `crates/core/src/mcp.rs`; the command is only the transport
 
 ### Desktop app
 

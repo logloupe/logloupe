@@ -10,6 +10,7 @@ pub mod format;
 pub mod geo;
 pub mod ingest;
 pub mod maintain;
+pub mod mcp;
 pub mod remote;
 pub mod report;
 pub mod source;

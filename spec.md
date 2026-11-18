@@ -20,7 +20,7 @@ A cross-platform tool for analysing web server access logs: where traffic comes 
 - Real-time tailing or live dashboards.
 - Replacing GoAccess for hourly server reports.
 - IIS / W3C Extended / load balancer log formats (the parser must be pluggable so these can be added).
-- A long-running server daemon or HTTP API. The CLI is the server interface.
+- A long-running server daemon or HTTP API. The CLI is the server interface, including for AI assistants (`logloupe mcp`, 7.3, which runs only for as long as its client keeps it open and listens on nothing).
 - Storing SSH private keys or passwords. Remote fetch (9) uses the system `ssh` client and whatever it is already set up with.
 
 ---
@@ -470,6 +470,7 @@ logloupe geo update | status
 logloupe db stats [<slug>] | files <slug> | prune <slug> --before DATE [--rollups] | delete-file <slug> <file-id>
         | clear <slug> | compact <slug>
 logloupe reenrich <slug> [--from DATE] [--to DATE] [--only ua,source,geo,bots]
+logloupe mcp                           # serve the reports to an AI assistant on stdin and stdout (7.3)
 ```
 
 Global flags: `--data-dir`, `--memory-limit`, `--threads`, `--wait-lock <seconds>`, `--quiet`, `--json`, `--offline` (never fetch; use only the cached ranges).
@@ -515,6 +516,22 @@ Rules:
 - The error object is `{"schema_version": 1, "error": {"code": "site_locked", "message": "..."}}`. Codes are stable strings and part of the contract.
 
 This envelope is the integration point for Laravel (invoke the binary from a queued job, decode stdout). Treat it as a public API: bump `schema_version` on breaking changes. The Tauri commands return the same structure.
+
+### 7.3 MCP server
+
+`logloupe mcp` lets an AI assistant use the reports through the Model Context Protocol. The global flags apply (`--data-dir`, `--wait-lock`, `--memory-limit`, `--threads`).
+
+- **Where the code is.** The protocol and the tools are in the engine (`crates/core/src/mcp.rs`): `Server::handle` takes one JSON-RPC message and returns the reply, or nothing for a notification. The command-line tool is only the stdio transport: one message per line on standard input, one reply per line on standard output, and nothing else ever written there. A later HTTP transport (the server version) passes request bodies to the same function, so the tools cannot differ between the two.
+- **Transport.** Standard input and output only. For logs on a server, the client runs `ssh <host> logloupe mcp`; SSH provides the encryption and the authentication, and no port is opened. HTTP waits for the server version, because it needs what that needs: tokens, login and advice on TLS.
+- **Protocol.** JSON-RPC 2.0 written by hand over `serde_json`, with no new dependency: `initialize`, `ping`, `tools/list`, `tools/call`. It accepts protocol revisions 2025-06-18, 2025-03-26 and 2024-11-05 and offers the newest when asked for one it does not know. No resources, prompts or sampling. Batches are refused.
+- **Tools, all read-only** (each opens the site read-only and is marked `readOnlyHint`):
+  - `list_sites`: the same listing as `site list --json`.
+  - `list_reports`: names, descriptions and tables.
+  - `run_report`: `site`, `report`, then the date range and every filter the `report` command takes, as flat arguments, plus `granularity`, `threshold`, `table`, `sort`, `descending`, `limit`, `offset`. The reply is the envelope of 7.2, unchanged. `limit` defaults to 50 and is capped at 500, since a reply is read into an assistant's context.
+  - `block_list`: `site`, the filters, `by`, `style`, `min_hits`, `limit`. Returns text and a count. Verified bots and local addresses are left out as everywhere else (6.3.6), and the result says that nothing has been applied.
+- **Nothing that writes**: no ingest, fetch, settings, pruning or deleting. Adding a tool that changes anything, or one that makes a network request, needs a decision here first.
+- **Errors.** A tool that fails (no such site, a bad filter, a locked site) returns a result with `isError` and the message followed by the stable error code, so the assistant can correct itself. Only a malformed call is a JSON-RPC error. An argument the tool does not have is refused, so that a misspelt filter is not silently ignored.
+- **Untrusted content.** Report rows carry text from the logs, which the requester wrote, and an assistant may read it as instructions. The server cannot prevent that; what it does is state in its `instructions` and in the `run_report` description that this text is data, keep every tool read-only so that nothing here can be turned against the user's sites, and keep replies small. Arguments from the assistant are treated like any other input: the site name is validated, filters are escaped (`report::quote`), and the sort column is matched against the table's own columns.
 
 ---
 

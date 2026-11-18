@@ -53,6 +53,25 @@ logloupe fetch example --days 30    # the first time, on a server with years of 
 
 In the app this is on the Ingest screen, under "Fetch from a server". The design and the rules for what is accepted as a host or path are in [spec.md](spec.md) section 9.
 
+## Using it from an AI assistant (MCP)
+
+Not in a release yet; build from source to use it.
+
+`logloupe mcp` is a [Model Context Protocol](https://modelcontextprotocol.io) server on standard input and output, so an assistant can read your sites alongside its other data. It offers four tools, all read-only: `list_sites`, `list_reports`, `run_report` (every report, with the same filters, paging and sorting as the command line) and `block_list`.
+
+Most clients take a command to run. In their JSON configuration that is:
+
+```json
+{ "mcpServers": { "logloupe": { "command": "logloupe", "args": ["mcp"] } } }
+```
+
+or, for Claude Code, `claude mcp add logloupe -- logloupe mcp`.
+
+- **Logs on a server:** install `logloupe` there and use `ssh` as the command, for example `"command": "ssh", "args": ["web1", "logloupe", "mcp"]`. SSH does the encryption and the login, and the server opens no port. There is no HTTP transport yet, so a client that can only connect to a URL cannot use it.
+- **It uses the same data directory as the app and the CLI.** Add `--data-dir`, or set `LOGLOUPE_DATA_DIR`, to point it elsewhere. A site that is being ingested at that moment answers "in use"; `--wait-lock 30` makes it wait instead.
+- **Nothing can be changed through it.** It cannot ingest, fetch, delete or change settings, and a block list is only text: nothing is applied anywhere.
+- **Report rows contain text from your logs**, which whoever made each request chose (paths, referrers, user agents). The server tells the assistant to treat that as data, but an assistant that also has tools which can act deserves the usual care. A table is 50 rows unless more are asked for, and never more than 500 at a time.
+
 ## Desktop app
 
 `crates/app` is a Tauri 2 app (Vue 3 + Nuxt UI) over the same engine. Its commands call the same functions as the CLI.

@@ -90,6 +90,8 @@ enum Command {
     Geo(GeoCommand),
     /// Print the busiest addresses or networks as a block list to paste into a server config
     Blocklist(BlocklistArgs),
+    /// Serve reports to an AI assistant over the Model Context Protocol, on standard input and output
+    Mcp,
 }
 
 #[derive(Args)]
@@ -468,6 +470,7 @@ fn run(cli: Cli, json: bool) -> Result<()> {
         dns: cli.global.dns && !cli.global.offline,
     };
     match cli.command {
+        Command::Mcp => serve_mcp(app),
         Command::Site(command) => site(&app, command),
         Command::Ingest(args) => run_ingest(&app, args),
         Command::Fetch(args) => run_fetch(&app, args),
@@ -480,6 +483,26 @@ fn run(cli: Cli, json: bool) -> Result<()> {
         Command::Geo(command) => geo(&app, command),
         Command::Blocklist(args) => blocklist(&app, args),
     }
+}
+
+/// The stdio transport for the engine's MCP server: one JSON-RPC message per
+/// line in, one per line out, until standard input closes. Standard output
+/// carries nothing but protocol messages.
+fn serve_mcp(app: App) -> Result<()> {
+    use std::io::BufRead;
+    let server = logloupe_core::mcp::Server::new(app.dir, app.opts);
+    let mut out = std::io::stdout().lock();
+    for line in std::io::stdin().lock().lines() {
+        let line = line?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        if let Some(reply) = server.handle(&line) {
+            writeln!(out, "{reply}")?;
+            out.flush()?;
+        }
+    }
+    Ok(())
 }
 
 /// The settings changes asked for on the command line.
