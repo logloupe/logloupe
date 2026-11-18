@@ -2624,7 +2624,7 @@ checksum = "5d15f86d12da44cd8d4ec3c73984537eb7f4cadcb9776a575a0a8a05ca11005c"
 
 [[package]]
 name = "logloupe"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "clap",
@@ -2636,7 +2636,7 @@ dependencies = [
 
 [[package]]
 name = "logloupe-app"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "logloupe-core",
@@ -2650,7 +2650,7 @@ dependencies = [
 
 [[package]]
 name = "logloupe-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "blake3",
  "chrono",

@@ -138,7 +138,7 @@ function report(name: string, table?: string | null): ReportResult {
 export async function mockInvoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   await new Promise((resolve) => setTimeout(resolve, 150))
   const data: Record<string, () => unknown> = {
-    app_info: () => ({ version: '0.1.0', data_dir: '(browser preview)' }),
+    app_info: () => ({ version: '0.2.0', data_dir: '(browser preview)' }),
     list_sites: () => [site],
     list_reports: () => reports,
     run_report: () => report(String(args?.name), (args?.params as { table?: string })?.table),

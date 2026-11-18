@@ -8,7 +8,7 @@ Last updated: 2026-11-17. The history was rewritten on 2026-11-16, so commit has
 
 - Engine, command-line tool and desktop app all work on Windows. CI passes on Windows, macOS and Linux (build and tests only; the app has never been opened on macOS or Linux).
 - The owner uses the installed app on real client logs.
-- The repository is `logloupe/logloupe` on GitHub, **public** since 2026-11-17. Release 0.1.0 was published on 2026-11-17 after the owner installed it over the previous copy and confirmed the data was kept. It is unsigned. The website at logloupe.com is built in a separate session. SSH fetch was built after 0.1.0 and is not in a release; the website's brief says so.
+- The repository is `logloupe/logloupe` on GitHub, **public** since 2026-11-17. Release 0.1.0 was published on 2026-11-17 after the owner installed it over the previous copy and confirmed the data was kept. It is unsigned. The website at logloupe.com is built in a separate session. Version 0.2.0 (SSH fetch and the SEO crawl reports) was tagged on 2026-11-18; the workflow builds it into a **draft** release, which is not public until the owner has installed it and published it. Until then the website's brief still says both features are unreleased; tell that session when the draft is published.
 - The project lives in `C:\log-analyser`. It was moved off the USB drive `D:` on 2026-11-17 after that drive kept disconnecting; the old copy on `D:` is stale.
 - 97 tests, all passing. `cargo clippy` is clean with warnings as errors.
 
@@ -27,6 +27,7 @@ Last updated: 2026-11-17. The history was rewritten on 2026-11-16, so commit has
 
 ## Waiting on the owner
 
+- [ ] Install the 0.2.0 draft release and publish it if it is good. Then the README status line ("Built since the last release") and the website's brief need bringing up to date.
 - [ ] Sample log in a custom nginx `log_format`.
 - [ ] Try the SSH fetch on a cPanel account if one is to hand.
 - [ ] SignPath application submitted on 2026-11-17; waiting for their reply by email. The reputation answer said plainly that the project is new with no download figures, so they may decline or ask to re-apply later. If approved: add the signing step to the release workflow, change the code signing policy to the present tense, and tell the website.
