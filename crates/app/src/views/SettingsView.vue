@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // Settings: the cached bot IP ranges, and where the data lives.
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { api, errorMessage, type GeoStatus, type RangeStatus } from '../api'
 import { formatBytes, formatNumber, formatUtc } from '../format'
 import { loadSites, refreshReports, state } from '../state'
@@ -8,7 +8,33 @@ import { loadSites, refreshReports, state } from '../state'
 const toast = useToast()
 
 const ranges = ref<RangeStatus[]>([])
-const info = ref<{ version: string; data_dir: string } | null>(null)
+const info = ref<{ version: string; data_dir: string; exe: string } | null>(null)
+
+// Connecting an AI assistant: the text to paste into it, built from where
+// this copy of the app is installed and where its data is.
+const assistantFetch = ref(false)
+const assistantArgs = computed(() => [
+  'mcp',
+  ...(assistantFetch.value ? ['--allow-fetch'] : []),
+  '--data-dir',
+  info.value?.data_dir ?? '',
+])
+const assistantJson = computed(() =>
+  JSON.stringify({ mcpServers: { logloupe: { command: info.value?.exe ?? '', args: assistantArgs.value } } }, null, 2),
+)
+const assistantCommand = computed(() => {
+  const quoted = [info.value?.exe ?? '', ...assistantArgs.value].map((part) => (/[\s"]/.test(part) || part.includes('\\') ? `"${part}"` : part))
+  return `claude mcp add logloupe -- ${quoted.join(' ')}`
+})
+
+async function copyText(text: string, what: string) {
+  try {
+    await navigator.clipboard.writeText(text)
+    toast.add({ title: `Copied the ${what}`, color: 'success' })
+  } catch (e) {
+    toast.add({ title: 'Could not copy. Select the text and copy it by hand.', description: errorMessage(e), color: 'error' })
+  }
+}
 const updating = ref(false)
 const geo = ref<GeoStatus | null>(null)
 const geoUpdating = ref(false)
@@ -212,6 +238,55 @@ onMounted(load)
     </section>
 
     <UAlert v-for="problem in problems" :key="problem" color="warning" variant="subtle" icon="i-lucide-info" :title="problem" />
+
+    <section v-if="info?.exe" class="rounded-lg border border-default bg-default">
+      <header class="border-b border-default px-4 py-2.5">
+        <h2 class="text-sm font-semibold text-highlighted">Use with an AI assistant</h2>
+        <p class="text-xs text-muted">
+          An assistant that supports the Model Context Protocol (MCP), such as Claude, can list your sites, run any
+          report and draft block lists. It starts Logloupe itself, in the background, whenever it needs an answer: this
+          window does not have to be open, and nothing listens on the network.
+        </p>
+      </header>
+      <div class="space-y-4 p-4 text-sm">
+        <USwitch
+          v-model="assistantFetch"
+          label="Let the assistant fetch the latest logs"
+          description="Adds one more tool: downloading new logs over SSH for sites that have a server set up on the Ingest screen. Off, the assistant can only read. This changes the text below, so copy it again after switching."
+        />
+
+        <div>
+          <div class="flex items-center justify-between gap-4">
+            <p class="text-highlighted">
+              <span class="font-medium">Claude Desktop and other apps with a settings file.</span>
+              Add this to the file. In Claude Desktop it opens from Settings, Developer, Edit Config. Then restart that app.
+            </p>
+            <UButton icon="i-lucide-copy" label="Copy" size="xs" color="neutral" variant="outline" class="shrink-0" @click="copyText(assistantJson, 'settings')" />
+          </div>
+          <pre class="mt-2 overflow-auto rounded-md border border-default bg-elevated/50 p-3 font-mono text-xs leading-5 text-highlighted select-all">{{ assistantJson }}</pre>
+          <p class="mt-1 text-xs text-muted">
+            If the file already has an <code>mcpServers</code> section, add only the <code>"logloupe"</code> entry to it.
+          </p>
+        </div>
+
+        <div>
+          <div class="flex items-center justify-between gap-4">
+            <p class="text-highlighted"><span class="font-medium">Claude Code.</span> Run this once in a terminal.</p>
+            <UButton icon="i-lucide-copy" label="Copy" size="xs" color="neutral" variant="outline" class="shrink-0" @click="copyText(assistantCommand, 'command')" />
+          </div>
+          <pre class="mt-2 overflow-auto rounded-md border border-default bg-elevated/50 p-3 font-mono text-xs leading-5 text-highlighted select-all">{{ assistantCommand }}</pre>
+        </div>
+
+        <ul class="space-y-1 text-xs text-muted">
+          <li>Then ask it something, for example: "Which bots made the most requests to {{ state.slug || 'my site' }} last week?"</li>
+          <li>
+            What the assistant reads from a report, including IP addresses, goes to the company that runs the assistant,
+            like anything else you show it. Logloupe itself still sends nothing.
+          </li>
+          <li>The text above points at this copy of the app. If you move or reinstall it somewhere else, copy it again.</li>
+        </ul>
+      </div>
+    </section>
 
     <section class="flex items-center justify-between gap-4 rounded-lg border border-default bg-default p-4">
       <div>

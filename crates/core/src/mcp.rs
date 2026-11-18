@@ -16,6 +16,7 @@ use chrono::NaiveDate;
 use serde::Deserialize;
 use serde_json::{Map, Value as Json, json};
 
+use std::io::{BufRead, Write};
 use std::sync::atomic::AtomicBool;
 
 use crate::bots::{Registry, ranges};
@@ -85,6 +86,24 @@ impl Server {
     pub fn allow_fetch(mut self, fetching: Fetching) -> Self {
         self.fetch = Some(fetching);
         self
+    }
+
+    /// The stdio transport: one JSON-RPC message per line from `input`, one
+    /// reply per line to `output`, until the input ends. Nothing but protocol
+    /// messages is ever written. The command-line tool and the desktop app
+    /// both run this over their standard input and output.
+    pub fn serve(&self, input: impl BufRead, mut output: impl Write) -> std::io::Result<()> {
+        for line in input.lines() {
+            let line = line?;
+            if line.trim().is_empty() {
+                continue;
+            }
+            if let Some(reply) = self.handle(&line) {
+                writeln!(output, "{reply}")?;
+                output.flush()?;
+            }
+        }
+        Ok(())
     }
 
     /// Handles one JSON-RPC message. Returns the reply as a single line of

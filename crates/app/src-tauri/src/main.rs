@@ -64,6 +64,9 @@ where
 struct AppInfo {
     version: &'static str,
     data_dir: String,
+    /// Where this program is installed, for the "connect an assistant"
+    /// instructions. Empty if the system will not say.
+    exe: String,
 }
 
 #[tauri::command]
@@ -71,6 +74,9 @@ fn app_info(state: State<'_, AppState>) -> AppInfo {
     AppInfo {
         version: env!("CARGO_PKG_VERSION"),
         data_dir: state.dir.root().to_string_lossy().into_owned(),
+        exe: std::env::current_exe()
+            .map(|path| path.to_string_lossy().into_owned())
+            .unwrap_or_default(),
     }
 }
 
@@ -517,7 +523,64 @@ async fn geo_update(state: State<'_, AppState>) -> CommandResult<logloupe_core::
     blocking(move || logloupe_core::geo::update_dbip(dir.root())).await
 }
 
+/// `logloupe-app mcp [--allow-fetch] [--data-dir DIR]`: the engine's MCP
+/// server on standard input and output, with no window. It is the same server
+/// as `logloupe mcp`, here so that someone with only the app installed can
+/// connect an AI assistant to it. Returns the process exit code.
+fn serve_mcp(args: &[String]) -> i32 {
+    use logloupe_core::mcp::{Fetching, Server};
+    let mut allow_fetch = false;
+    let mut data_dir = None;
+    let mut args = args.iter();
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--allow-fetch" => allow_fetch = true,
+            "--data-dir" => match args.next() {
+                Some(dir) => data_dir = Some(PathBuf::from(dir)),
+                None => {
+                    eprintln!("error: --data-dir needs a folder");
+                    return 2;
+                }
+            },
+            other => {
+                eprintln!(
+                    "error: unknown option '{other}'. Usage: mcp [--allow-fetch] [--data-dir DIR]"
+                );
+                return 2;
+            }
+        }
+    }
+    let dir = match DataDir::resolve(data_dir) {
+        Ok(dir) => dir,
+        Err(e) => {
+            eprintln!("error: {e}");
+            return 1;
+        }
+    };
+    let mut server = Server::new(dir, OpenOptions::default());
+    if allow_fetch {
+        server = server.allow_fetch(Fetching {
+            transport: Box::new(Ssh::new()),
+            refresh_ranges: true,
+            dns: false,
+        });
+    }
+    match server.serve(std::io::stdin().lock(), std::io::stdout().lock()) {
+        Ok(()) => 0,
+        Err(e) => {
+            eprintln!("error: {e}");
+            1
+        }
+    }
+}
+
 fn main() {
+    // Checked before anything else: this mode opens no window, and must not
+    // be mistaken for a second copy of the app by the single-instance check.
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().is_some_and(|a| a == "mcp") {
+        std::process::exit(serve_mcp(&args[1..]));
+    }
     let dir = DataDir::resolve(None).expect("a per-user data directory is available");
     tauri::Builder::default()
         // Must be registered first. Two copies would fight over the same site

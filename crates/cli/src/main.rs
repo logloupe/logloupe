@@ -490,12 +490,10 @@ fn run(cli: Cli, json: bool) -> Result<()> {
     }
 }
 
-/// The stdio transport for the engine's MCP server: one JSON-RPC message per
-/// line in, one per line out, until standard input closes. Standard output
-/// carries nothing but protocol messages.
+/// Runs the engine's MCP server on standard input and output until the input
+/// closes. Standard output carries nothing but protocol messages.
 fn serve_mcp(app: App, allow_fetch: bool) -> Result<()> {
     use logloupe_core::mcp::{Fetching, Server};
-    use std::io::BufRead;
     let mut server = Server::new(app.dir.clone(), app.opts.clone());
     if allow_fetch {
         need_network(&app, "mcp --allow-fetch")?;
@@ -505,17 +503,7 @@ fn serve_mcp(app: App, allow_fetch: bool) -> Result<()> {
             dns: app.dns,
         });
     }
-    let mut out = std::io::stdout().lock();
-    for line in std::io::stdin().lock().lines() {
-        let line = line?;
-        if line.trim().is_empty() {
-            continue;
-        }
-        if let Some(reply) = server.handle(&line) {
-            writeln!(out, "{reply}")?;
-            out.flush()?;
-        }
-    }
+    server.serve(std::io::stdin().lock(), std::io::stdout().lock())?;
     Ok(())
 }
 
