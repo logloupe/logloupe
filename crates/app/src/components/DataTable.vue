@@ -6,8 +6,25 @@ import { api, errorMessage, type Cell, type Column, type ReportTable } from '../
 import { formatBytes, formatNumber, humanise } from '../format'
 import { canFilterBy, clearFilters, filterBy, hasFilters, state } from '../state'
 
-const props = defineProps<{ table: ReportTable; loading?: boolean }>()
-const emit = defineEmits<{ page: [offset: number]; export: [] }>()
+const props = defineProps<{
+  table: ReportTable
+  loading?: boolean
+  /** The column the rows are ordered by, when it is not the table's usual order. */
+  sort?: { key: string; descending: boolean } | null
+}>()
+const emit = defineEmits<{ page: [offset: number]; export: []; sort: [column: Column] }>()
+
+function ariaSort(column: Column): 'ascending' | 'descending' | 'none' {
+  if (props.sort?.key !== column.key) return 'none'
+  return props.sort.descending ? 'descending' : 'ascending'
+}
+
+function sortHint(column: Column): string {
+  const name = humanise(column.key).toLowerCase()
+  const state = ariaSort(column)
+  if (state === 'none') return `Sort by ${name}`
+  return `Sorted by ${name}, ${state === 'descending' ? 'largest' : 'smallest'} first. Click to change.`
+}
 
 const toast = useToast()
 const blockable = /^[0-9a-f:.]+(\/\d{1,3})?$/i
@@ -221,8 +238,29 @@ const hasNext = computed(() => last.value < props.table.total_rows)
                 numeric(column) ? 'text-right' : '',
                 column.key === table.columns[0].key && !selectable ? 'sticky left-0 z-10' : '',
               ]"
+              :aria-sort="ariaSort(column)"
             >
-              {{ humanise(column.key) }}
+              <button
+                type="button"
+                class="group/sort inline-flex cursor-pointer items-center gap-1 rounded-sm font-medium hover:text-highlighted focus-visible:outline-2 focus-visible:outline-primary disabled:cursor-default"
+                :class="[numeric(column) ? 'flex-row-reverse' : '', sort?.key === column.key ? 'text-highlighted' : '']"
+                :title="sortHint(column)"
+                :disabled="loading || table.total_rows < 2"
+                @click="emit('sort', column)"
+              >
+                {{ humanise(column.key) }}
+                <UIcon
+                  :name="
+                    sort?.key === column.key
+                      ? sort.descending
+                        ? 'i-lucide-arrow-down'
+                        : 'i-lucide-arrow-up'
+                      : 'i-lucide-arrow-up-down'
+                  "
+                  class="size-3 shrink-0"
+                  :class="sort?.key === column.key ? 'text-primary' : 'opacity-0 group-hover/sort:opacity-60 group-focus-visible/sort:opacity-60'"
+                />
+              </button>
             </th>
           </tr>
         </thead>

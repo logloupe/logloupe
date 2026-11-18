@@ -73,6 +73,11 @@ pub struct ReportParams {
     pub threshold: Option<u64>,
     /// Return only this table.
     pub table: Option<String>,
+    /// Order rows by this column instead of the table's usual order. Tables
+    /// without the column keep their usual order.
+    pub sort: Option<String>,
+    /// With `sort`: largest first.
+    pub descending: bool,
     pub limit: u64,
     pub offset: u64,
 }
@@ -86,6 +91,8 @@ impl Default for ReportParams {
             granularity: None,
             threshold: None,
             table: None,
+            sort: None,
+            descending: false,
             limit: DEFAULT_LIMIT,
             offset: 0,
         }
@@ -367,13 +374,33 @@ fn read_cell(row: &duckdb::Row<'_>, index: usize, ty: ColumnType) -> duckdb::Res
     })
 }
 
-fn run_table(conn: &Connection, spec: TableSpec, limit: u64, offset: u64) -> Result<Table> {
+/// The ORDER BY for a table. A requested sort column goes first, with the
+/// table's usual order behind it to settle ties, so paging stays stable. The
+/// column name is only ever one of the table's own keys, never the text asked for.
+fn order_clause(spec: &TableSpec, sort: Option<&str>, descending: bool) -> String {
+    match sort.and_then(|key| spec.columns.iter().find(|c| c.key == key)) {
+        Some(column) => format!(
+            "q.\"{}\" {} NULLS LAST, {}",
+            column.key,
+            if descending { "DESC" } else { "ASC" },
+            spec.order_by
+        ),
+        None => spec.order_by.to_owned(),
+    }
+}
+
+fn run_table(
+    conn: &Connection,
+    spec: TableSpec,
+    order_by: &str,
+    limit: u64,
+    offset: u64,
+) -> Result<Table> {
     let casts: Vec<String> = spec.columns.iter().map(cast).collect();
     let sql = format!(
-        "SELECT {}, count(*) OVER () FROM ({}) q ORDER BY {} LIMIT {limit} OFFSET {offset}",
+        "SELECT {}, count(*) OVER () FROM ({}) q ORDER BY {order_by} LIMIT {limit} OFFSET {offset}",
         casts.join(", "),
         spec.sql,
-        spec.order_by,
     );
     let mut stmt = conn.prepare(&sql)?;
     let mut total_rows = 0u64;
@@ -549,12 +576,33 @@ impl<'a> Scope<'a> {
     }
 
     pub fn finish(self, report: &'static str, specs: Vec<TableSpec>) -> Result<ReportResult> {
+        let wanted = |spec: &TableSpec| self.params.table.as_deref().is_none_or(|t| t == spec.name);
+        let sort = self.params.sort.as_deref();
+        if let Some(key) = sort
+            && !specs
+                .iter()
+                .any(|s| wanted(s) && s.columns.iter().any(|c| c.key == key))
+        {
+            let mut keys: Vec<&str> = specs
+                .iter()
+                .filter(|s| wanted(s))
+                .flat_map(|s| s.columns.iter().map(|c| c.key))
+                .collect();
+            keys.sort_unstable();
+            keys.dedup();
+            return Err(Error::invalid(format!(
+                "cannot sort by '{key}': no such column. Columns: {}",
+                keys.join(", ")
+            )));
+        }
         let mut tables = Vec::with_capacity(specs.len());
         for spec in specs {
-            if self.params.table.as_deref().is_none_or(|t| t == spec.name) {
+            if wanted(&spec) {
+                let order_by = order_clause(&spec, sort, self.params.descending);
                 tables.push(run_table(
                     self.conn(),
                     spec,
+                    &order_by,
                     self.params.limit,
                     self.params.offset,
                 )?);

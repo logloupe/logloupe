@@ -3,7 +3,7 @@
 // of its tables, with a chart on top where the report has a time series.
 import { computed, ref, watch } from 'vue'
 import { save } from '@tauri-apps/plugin-dialog'
-import { api, errorCode, errorMessage, inTauri, type ReportResult, type ReportTable } from '../api'
+import { api, errorCode, errorMessage, inTauri, type Column, type ReportResult, type ReportTable } from '../api'
 import { currentSite, reportParams, state } from '../state'
 import DataTable from '../components/DataTable.vue'
 import SeriesChart from '../components/SeriesChart.vue'
@@ -42,7 +42,10 @@ const chart = computed<{ table: ReportTable; keys: string[] } | null>(() => {
   if (!series) return null
   const keys = series.columns.map((c) => c.key)
   if (isOverview.value) {
-    return series.rows.length > 1 ? { table: series, keys: ['requests', 'bot', 'human', 'pages'] } : null
+    if (series.rows.length < 2) return null
+    // The table may have been re-sorted by a column; the chart always runs in time order.
+    const rows = [...series.rows].sort((a, b) => String(a[0]).localeCompare(String(b[0])))
+    return { table: { ...series, rows }, keys: ['requests', 'bot', 'human', 'pages'] }
   }
   // A long series (day, group, value) becomes one line per group, busiest first.
   if (keys.length !== 3) return null
@@ -78,13 +81,50 @@ function params(extra = {}) {
   })
 }
 
+// Column sorts chosen by clicking a header, per table. The engine does the
+// sorting, because a table only ever holds one page of its rows.
+type Sort = { key: string; descending: boolean }
+const sorts = ref<Record<string, Sort>>({})
+let sortsReport = props.report
+
+function tableParams(table: string, offset = 0) {
+  const sort = sorts.value[table]
+  return params({ table, offset, sort: sort?.key ?? null, descending: sort?.descending ?? false })
+}
+
+/** First click: numbers largest first, text A to Z. Second: the reverse. Third: the usual order. */
+function sortBy(table: string, column: Column) {
+  const natural = column.type === 'integer' || column.type === 'float'
+  const current = sorts.value[table]
+  const next = { ...sorts.value }
+  if (current?.key !== column.key) next[table] = { key: column.key, descending: natural }
+  else if (current.descending === natural) next[table] = { key: column.key, descending: !natural }
+  else delete next[table]
+  sorts.value = next
+  void page(table, 0)
+}
+
 async function load() {
   if (!state.slug) return
+  if (sortsReport !== props.report) {
+    sorts.value = {}
+    sortsReport = props.report
+  }
   const mine = ++run
   loading.value = true
   error.value = ''
   try {
     const data = await api.runReport(state.slug, props.report, params())
+    // Tables with a chosen sort are asked for again in that order.
+    const sorted = await Promise.all(
+      data.tables
+        .filter((t) => sorts.value[t.name])
+        .map((t) => api.runReport(state.slug, props.report, tableParams(t.name))),
+    )
+    for (const one of sorted) {
+      const fresh = one.tables[0]
+      if (fresh) data.tables = data.tables.map((t) => (t.name === fresh.name ? fresh : t))
+    }
     if (mine === run) result.value = data
   } catch (e) {
     if (mine !== run) return
@@ -102,7 +142,7 @@ async function page(table: string, offset: number) {
   if (!result.value) return
   paging.value = table
   try {
-    const data = await api.runReport(state.slug, props.report, params({ table, offset }))
+    const data = await api.runReport(state.slug, props.report, tableParams(table, offset))
     const fresh = data.tables[0]
     if (fresh) {
       result.value.tables = result.value.tables.map((t) => (t.name === table ? fresh : t))
@@ -125,7 +165,7 @@ async function exportCsv(table: string) {
   })
   if (!path) return
   try {
-    const rows = await api.exportCsv(state.slug, props.report, params(), table, path)
+    const rows = await api.exportCsv(state.slug, props.report, tableParams(table), table, path)
     toast.add({ title: `Exported ${rows.toLocaleString()} rows`, description: path, color: 'success' })
   } catch (e) {
     toast.add({ title: 'Export failed', description: errorMessage(e), color: 'error' })
@@ -197,6 +237,8 @@ watch(() => [props.report, state.slug, state.revision, granularity.value], load,
         :key="table.name"
         :table="table"
         :loading="paging === table.name || loading"
+        :sort="sorts[table.name] ?? null"
+        @sort="(column) => sortBy(table.name, column)"
         @page="(offset) => page(table.name, offset)"
         @export="exportCsv(table.name)"
       />

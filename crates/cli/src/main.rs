@@ -133,6 +133,7 @@ struct SiteOptions {
     #[arg(long = "host", value_name = "HOST")]
     hosts: Vec<String>,
     /// IANA time zone used for days and hours, for example Europe/London
+    /// (`logloupe site timezones` lists them)
     #[arg(long)]
     timezone: Option<String>,
     /// forever, none, or days:N
@@ -169,6 +170,11 @@ enum SiteCommand {
     },
     /// Delete a site and all its data
     Remove { slug: String },
+    /// List the time zone names --timezone accepts
+    Timezones {
+        /// Only names containing this text, for example "europe" or "york"
+        search: Option<String>,
+    },
 }
 
 #[derive(Args)]
@@ -334,6 +340,12 @@ struct ReportArgs {
     /// Return only this table
     #[arg(long, value_name = "NAME")]
     table: Option<String>,
+    /// Order rows by this column instead of the usual order (smallest first)
+    #[arg(long, value_name = "COLUMN")]
+    sort: Option<String>,
+    /// With --sort: largest first
+    #[arg(long, requires = "sort")]
+    desc: bool,
     /// Rows per table
     #[arg(long, default_value_t = report::DEFAULT_LIMIT)]
     limit: u64,
@@ -632,6 +644,20 @@ fn site(app: &App, command: SiteCommand) -> Result<()> {
                 app.emit(&json!({ "removed": slug, "bytes_freed": freed }));
             } else {
                 println!("Removed site '{slug}' ({} freed).", bytes(freed));
+            }
+        }
+        SiteCommand::Timezones { search } => {
+            let wanted = search.unwrap_or_default().to_lowercase().replace(' ', "_");
+            let names: Vec<&str> = logloupe_core::store::timezone_names()
+                .into_iter()
+                .filter(|name| name.to_lowercase().contains(&wanted))
+                .collect();
+            if app.json {
+                app.emit(&json!({ "timezones": names }));
+            } else if names.is_empty() {
+                println!("No time zone name contains '{wanted}'.");
+            } else {
+                println!("{}", names.join("\n"));
             }
         }
     }
@@ -956,6 +982,8 @@ fn run_report(app: &App, args: ReportArgs) -> Result<()> {
         }),
         threshold: args.threshold,
         table: args.table,
+        sort: args.sort,
+        descending: args.desc,
         limit: args.limit,
         offset: args.offset,
         ..args.filter.params()
@@ -1054,7 +1082,8 @@ fn list_reports(app: &App) -> Result<()> {
         app.emit(&json!({
             "reports": reports,
             "parameters": ["from", "to", "status", "status-code", "path-prefix", "ip", "source", "country", "asn",
-                           "bot", "verified", "referrer", "user-agent", "granularity", "table", "limit", "offset", "format"],
+                           "bot", "verified", "referrer", "user-agent", "granularity", "table", "sort", "desc", "limit",
+                           "offset", "format"],
         }));
         return Ok(());
     }
@@ -1071,7 +1100,7 @@ fn list_reports(app: &App) -> Result<()> {
     print_table(&["report", "tables", "description"], &rows);
     println!(
         "\nEvery report takes: --from DATE --to DATE --status CLASS --status-code CODE --path-prefix PREFIX --ip IP \
-         --source TYPE --country ISO --asn N --bot NAME --verified STATE --referrer TEXT --user-agent TEXT --table NAME --limit N \
+         --source TYPE --country ISO --asn N --bot NAME --verified STATE --referrer TEXT --user-agent TEXT --table NAME --sort COLUMN --desc --limit N \
          --offset N --format json|table|csv"
     );
     Ok(())

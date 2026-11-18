@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // Sites: list with coverage and size, add, edit, delete.
-import { reactive, ref } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 import { api, errorMessage, type SettingsPatch, type SiteStats } from '../api'
 import { loadSites, selectSite, state } from '../state'
 import { formatBytes, formatNumber, formatUtc } from '../format'
@@ -19,10 +19,43 @@ const overlapModes = [
   { label: 'Ingest everything', value: 'allow' },
 ]
 
+/** The zone's offset from UTC today, or nothing when the webview does not know the zone. */
+function utcOffset(zone: string, now: Date): string {
+  try {
+    const parts = new Intl.DateTimeFormat('en', { timeZone: zone, timeZoneName: 'longOffset' }).formatToParts(now)
+    const offset = parts.find((p) => p.type === 'timeZoneName')?.value ?? ''
+    return offset === 'GMT' ? 'UTC+00:00' : offset.replace('GMT', 'UTC')
+  } catch {
+    return ''
+  }
+}
+
+// The engine's own list, so every choice is a name it accepts. Labels use
+// spaces so that typing "new york" finds America/New_York.
+const timezones = ref<{ label: string; value: string; offset: string }[]>([])
+onMounted(async () => {
+  try {
+    const now = new Date()
+    timezones.value = (await api.listTimezones()).map((value) => ({
+      label: value.replaceAll('_', ' '),
+      value,
+      offset: utcOffset(value, now),
+    }))
+  } catch (e) {
+    toast.add({ title: 'Could not load the time zone list', description: errorMessage(e), color: 'error' })
+  }
+})
+
+/** This computer's zone, when the engine knows it by that name. */
+function localTimezone(): string {
+  const local = Intl.DateTimeFormat().resolvedOptions().timeZone
+  return timezones.value.some((zone) => zone.value === local) ? local : 'UTC'
+}
+
 const blank = () => ({
   slug: '',
   hosts: '',
-  timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+  timezone: localTimezone(),
   retentionMode: 'forever',
   retentionDays: 90,
   overlap: 'error',
@@ -63,7 +96,7 @@ function openEdit(stats: SiteStats) {
 function patch(): SettingsPatch {
   return {
     hosts: form.hosts.split(/[\s,]+/).filter(Boolean),
-    timezone: form.timezone.trim(),
+    timezone: form.timezone,
     retention: form.retentionMode === 'days' ? `days:${form.retentionDays}` : form.retentionMode,
     overlap: form.overlap,
     edge_cache: form.edgeCache,
@@ -210,8 +243,20 @@ function open(slug: string, view: string) {
           <UFormField label="Hostnames" help="The site's own hostnames, separated by commas. Referrers from these count as internal.">
             <UInput v-model="form.hosts" placeholder="example.com, www.example.com" class="w-full" required />
           </UFormField>
-          <UFormField label="Time zone" help="IANA name. Decides what a day and an hour mean in reports.">
-            <UInput v-model="form.timezone" placeholder="Europe/London" class="w-full" required />
+          <UFormField label="Time zone" help="Decides what a day and an hour mean in reports. Type a city or region to search.">
+            <USelectMenu
+              v-model="form.timezone"
+              :items="timezones"
+              value-key="value"
+              :filter-fields="['label', 'value', 'offset']"
+              :search-input="{ placeholder: 'Search, for example London or UTC+01' }"
+              virtualize
+              class="w-full"
+            >
+              <template #item-trailing="{ item }">
+                <span class="text-xs tabular-nums text-muted">{{ item.offset }}</span>
+              </template>
+            </USelectMenu>
           </UFormField>
           <div class="grid grid-cols-2 gap-4">
             <UFormField label="Retention">

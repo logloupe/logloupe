@@ -196,6 +196,14 @@ pub fn parse_timezone(name: &str) -> Result<Tz> {
     })
 }
 
+/// Every time zone name `parse_timezone` accepts, in alphabetical order, so
+/// the CLI and the app can offer a list instead of asking for one from memory.
+pub fn timezone_names() -> Vec<&'static str> {
+    let mut names: Vec<&'static str> = chrono_tz::TZ_VARIANTS.iter().map(|tz| tz.name()).collect();
+    names.sort_unstable();
+    names
+}
+
 /// Lowercases and validates a hostname given on the command line.
 pub fn normalise_host(host: &str) -> Result<String> {
     let host = host.trim().trim_end_matches('.').to_ascii_lowercase();
@@ -240,5 +248,9 @@ mod tests {
     fn timezones() {
         assert!(parse_timezone("Europe/London").is_ok());
         assert!(parse_timezone("Mars/Olympus").is_err());
+        let names = timezone_names();
+        assert!(names.contains(&"UTC") && names.contains(&"Australia/Sydney"));
+        assert!(names.is_sorted());
+        assert!(names.iter().all(|name| parse_timezone(name).is_ok()));
     }
 }

@@ -9,7 +9,9 @@ use crate::error::{Error, Result};
 
 pub mod settings;
 
-pub use settings::{ClientIpMode, OverlapPolicy, Retention, SettingsPatch, SiteSettings};
+pub use settings::{
+    ClientIpMode, OverlapPolicy, Retention, SettingsPatch, SiteSettings, timezone_names,
+};
 
 pub const SCHEMA_VERSION: u32 = 1;
 

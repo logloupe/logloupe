@@ -121,6 +121,9 @@ export interface ReportParams {
   granularity?: 'hour' | 'day' | null
   threshold?: number | null
   table?: string | null
+  /** Order rows by this column instead of the table's usual order. */
+  sort?: string | null
+  descending?: boolean
   limit?: number
   offset?: number
 }
@@ -286,6 +289,7 @@ export interface ReenrichResult {
 export const api = {
   initialView: () => call<string | null>('initial_view'),
   appInfo: () => call<{ version: string; data_dir: string }>('app_info'),
+  listTimezones: () => call<string[]>('list_timezones'),
   listSites: () => call<SiteEntry[]>('list_sites'),
   addSite: (slug: string, settings: SettingsPatch) => call<SiteStats>('add_site', { slug, settings }),
   updateSite: (slug: string, settings: SettingsPatch) =>

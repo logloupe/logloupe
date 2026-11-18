@@ -259,6 +259,62 @@ fn filters_dates_and_paging() {
     let t = &run(&store, "sources", &past_end).unwrap().tables[0];
     assert_eq!((t.rows.len(), t.total_rows), (0, 5));
 
+    // Sorting: by a named column either way, with paging applied afterwards.
+    let sorted = |sort: &str, descending: bool| {
+        let params = ReportParams {
+            table: Some("by_source_type".into()),
+            sort: Some(sort.into()),
+            descending,
+            ..Default::default()
+        };
+        let result = run(&store, "sources", &params).unwrap();
+        rows(&result, "by_source_type")
+            .iter()
+            .map(|row| row["source_type"].as_str().unwrap().to_owned())
+            .collect::<Vec<_>>()
+    };
+    let ascending = sorted("source_type", false);
+    assert_eq!(ascending.len(), 5);
+    assert!(ascending.is_sorted());
+    let mut reversed = sorted("source_type", true);
+    reversed.reverse();
+    assert_eq!(reversed, ascending);
+    let second = ReportParams {
+        sort: Some("source_type".into()),
+        limit: 1,
+        ..paged.clone()
+    };
+    let result = run(&store, "sources", &second).unwrap();
+    assert_eq!(
+        rows(&result, "by_source_type")[0]["source_type"],
+        ascending[1]
+    );
+    // A column only some tables have sorts those and leaves the rest alone;
+    // one that no table has is refused, and never reaches the SQL.
+    let some_tables = ReportParams {
+        sort: Some("referer_host".into()),
+        ..Default::default()
+    };
+    assert_eq!(
+        run(&store, "sources", &some_tables).unwrap().tables.len(),
+        3
+    );
+    for bad in ["nope", "pages; DROP TABLE requests", "source_type\""] {
+        let params = ReportParams {
+            sort: Some(bad.into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            run(&store, "sources", &params).unwrap_err().code(),
+            "invalid_argument"
+        );
+    }
+    let wrong_for_table = ReportParams {
+        sort: Some("referer_host".into()),
+        ..paged.clone()
+    };
+    assert!(run(&store, "sources", &wrong_for_table).is_err());
+
     assert_eq!(
         run(&store, "nope", &ReportParams::default())
             .unwrap_err()

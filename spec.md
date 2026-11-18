@@ -459,8 +459,10 @@ logloupe site add <slug> --host example.com [--host www.example.com] [--timezone
                      [--retention forever|none|days:N] [--overlap error|skip|allow] [--client-ip auto|peer|forwarded]
                      [--edge-cache true|false]
 logloupe site list | show <slug> | set <slug> [same options as add] | remove <slug>
+logloupe site timezones [search]       # the names --timezone accepts
 logloupe ingest <slug> <files or globs...> [--format auto|combined|<name>] [--force] [--overlap error|skip|allow] [--no-dns]
-logloupe report <slug> <report-name> [--from DATE] [--to DATE] [filters...] [--table NAME] [--limit N] [--offset N] [--format json|table|csv]
+logloupe report <slug> <report-name> [--from DATE] [--to DATE] [filters...] [--table NAME] [--sort COLUMN [--desc]]
+                     [--limit N] [--offset N] [--format json|table|csv]
 logloupe reports                       # list available report names, their tables and their parameters
 logloupe urls <slug> sitemap [URL] | import <file> | clear
 logloupe ranges update | status
@@ -508,7 +510,7 @@ Exit codes: 0 success, 1 failure, 2 usage error, 75 site locked by another proce
 Rules:
 
 - A report returns one or more named tables. Overview returns a time series and a totals table; an incident report returns an `incidents` table plus child tables (`top_paths`, `status_mix`, `block_list`) that refer back to it through an `incident_id` column. Cells are always scalars, never nested objects.
-- `--limit` and `--offset` apply per table, and `total_rows` is the count before paging. `--table NAME` returns just that table. `--format csv` writes one table: the one named, or the first.
+- `--limit` and `--offset` apply per table, and `total_rows` is the count before paging. `--table NAME` returns just that table. `--sort COLUMN` orders rows by one column (smallest first; `--desc` for largest first) before paging, with the table's usual order settling ties; tables without that column keep their usual order, and a column no returned table has is an error. The app's column headers use the same parameter, because a table on screen is only one page of its rows. `--format csv` writes one table: the one named, or the first.
 - `coverage` says which days were answered from raw rows and how many from rollups (3.5).
 - The error object is `{"schema_version": 1, "error": {"code": "site_locked", "message": "..."}}`. Codes are stable strings and part of the contract.
 

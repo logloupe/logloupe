@@ -2,7 +2,7 @@
 
 The single list of what is done and what is left. Update it in the same commit as the work: tick the item, move it if priorities change, and add anything new that comes up. The design behind each item is in [spec.md](spec.md); section numbers below refer to it.
 
-Last updated: 2026-11-17. The history was rewritten on 2026-11-16, so commit hashes quoted anywhere before then no longer exist.
+Last updated: 2026-11-18. The history was rewritten on 2026-11-16, so commit hashes quoted anywhere before then no longer exist.
 
 ## Where things stand
 
@@ -23,7 +23,7 @@ Last updated: 2026-11-17. The history was rewritten on 2026-11-16, so commit has
 - [ ] **Faster release builds**: the first release run took 1 h 24 min. On Windows the installer step took 44 minutes and the command-line step after it another 37, which means DuckDB was compiled twice; find out why the second `cargo build -p logloupe` does not reuse the first build (different features or environment under `tauri build`) and build both in one pass. The build cache is also not shared between tags.
 - [ ] **Updater**: Tauri's updater plugin, checking GitHub releases. Needs the repository public and an update signing key pair (separate from code signing; the private key is the owner's to hold). Decided: a "Check for updates" button in Settings and no automatic check, because the app promises to make no requests the user did not start.
 - [ ] **Server version**: an HTTP server exposing the same operations, serving the same frontend, with login (password first, then OpenID Connect) and a read-only API with tokens. Reads logs only from configured folders. The spec lists this as a non-goal and needs changing when work starts.
-- [ ] **API / MCP for AIdata**: comes almost free with the server version. Until then AIdata can call the `logloupe` binary and read its JSON.
+- [ ] **API / MCP for AIdata**: comes almost free with the server version. Until then AIdata can call the `logloupe` binary and read its JSON. Owner's note, 2026-11-18: wanted so that an assistant can use the logs alongside the aidata.stream data; on a server it has to be reachable over HTTP, not only from a command line. Proposed and **not yet decided**: (1) `logloupe mcp`, a read-only MCP server over stdio in the command-line tool (list sites, list reports, run a report with the usual filters, block lists), which works today for an assistant on the same machine and over `ssh host logloupe mcp` for a server, with no listening port; (2) the same tools over streamable HTTP with a bearer token as part of the server version, since that is where login, tokens and TLS guidance belong. Log content is untrusted text and would reach the assistant as tool results, so the tools stay read-only and say so.
 
 ## Waiting on the owner
 
@@ -43,6 +43,7 @@ Things built and tested in the engine or from the command line, but not exercise
 - [ ] The owner ran a fetch from the "Fetch from a server" card on 2026-11-17 and it worked. The bot IP range status line and the "Do not refresh bot IP ranges first" switch were added after that and have not been looked at in the app.
 - [ ] **SEO crawl reports on real logs.** Built and tested on 2026-11-17 against a hand-written fixture and a generated 30 MB log, from the command line and by opening all six screens in the app. The owner tried the app build the same day and was happy with it; changes will follow from use. Not confirmed on a real site's logs, so possibly unseen: how the waste patterns read on real URLs, Googlebot Image / Video / News user agents, a site with assets crawled, a large site's speed (each screen runs two to four grouped queries over the crawler rows), and the "slowest" table, which needs a log with response times.
 - [ ] The "Bot address" (verified state) choice in the app's filter bar is new and was not clicked through; the SEO screens were only opened with no filters set.
+- [ ] Column sorting and the time zone picker (2026-11-18) were driven in the real app on generated data: the three-click cycle on the All bots table, and searching for, choosing and saving a zone when editing a site. Not looked at: sorting on other screens, sorting then paging or exporting by hand, the picker in the "Add site" form, dark mode.
 
 - [ ] Dark mode on every screen (the chart is the likeliest problem).
 - [ ] CSV export, the Copy button on block lists, "View requests", the Geography and Status codes pages, the Settings downloads.
@@ -58,7 +59,7 @@ Things built and tested in the engine or from the command line, but not exercise
 - [ ] Rollup fallback for pruned days exists only for the Overview report (3.5). Sources, geography and bots report on remaining raw rows and say so.
 - [ ] `reenrich` takes no date range and does not recompute `source_type` after hostnames change (5.4). Re-ingest with `--force` is the workaround.
 - [ ] Arbitrary CIDR filters: only an exact address, an IPv4 /24 or an IPv6 /48 work (3.2).
-- [ ] Tables are sorted by the engine; clicking a column header to re-sort is not built.
+- [ ] The time zone picker opens at the top of its list, not at the zone currently chosen.
 - [ ] No threshold control for Bursts in the app (`--threshold` exists in the CLI).
 - [ ] Block lists by provider (ASN) are not possible: there is no offline list of an ASN's prefixes.
 - [ ] Bots with neither a published list nor a documented reverse DNS domain stay unverifiable (DuckDuckGo, You.com, Exa, most SEO tools). DuckDuckGo's list did not respond when tried; Amazon's page is HTML, not JSON.
@@ -100,6 +101,7 @@ Things built and tested in the engine or from the command line, but not exercise
 - [x] Block lists: plain, nginx `deny`, Apache `<RequireAll>`; verified bots and local addresses always left out (6.3.6)
 - [x] Shared filters: dates, status class and exact code, path prefix, IP, source, country, ASN, bot, verified state (in the app's filter bar too, as "Bot address"), referrer, user agent
 - [x] JSON envelope with named tables, paging, totals, coverage and notes (7.2)
+- [x] Sorting by any column, done by the engine before paging (`sort` and `descending` in the report parameters; `--sort COLUMN [--desc]`)
 
 ### Command line
 
@@ -112,6 +114,8 @@ Things built and tested in the engine or from the command line, but not exercise
 - [x] Tauri 2 with Vue 3 and Nuxt UI: sites, ingest with drag and drop and progress, every report, storage, settings (8)
 - [x] Filter bar with active-filter strip, clickable cells that filter every report, hourly or daily charts chosen automatically
 - [x] Block-list selection with a preview before copying
+- [x] Sortable column headers on every report table: first click sorts (numbers largest first, text A to Z), second reverses, third returns to the usual order. Paging and CSV export keep the chosen order
+- [x] Searchable time zone picker when adding or editing a site, filled from the engine's own list of names and showing each zone's offset from UTC (`logloupe site timezones [search]` on the command line)
 - [x] "Fetch from a server" on the Ingest screen: set-up form, "Check server" listing, "Fetch new files" with the same progress, cancel and results as a local ingest
 - [x] Ingest and fetch both say what happened to the bot IP ranges first: being updated, updated, already up to date, or not refreshed
 - [x] Light, dark or system appearance

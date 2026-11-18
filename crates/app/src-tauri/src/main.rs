@@ -83,6 +83,12 @@ fn initial_view() -> Option<String> {
         .filter(|v| !v.is_empty())
 }
 
+/// Every time zone name a site can be given, for the picker.
+#[tauri::command]
+fn list_timezones() -> Vec<&'static str> {
+    logloupe_core::store::timezone_names()
+}
+
 #[tauri::command]
 async fn list_sites(state: State<'_, AppState>) -> CommandResult<Vec<SiteEntry>> {
     let (dir, opts) = (state.dir.clone(), state.opts.clone());
@@ -532,6 +538,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             app_info,
             initial_view,
+            list_timezones,
             list_sites,
             add_site,
             update_site,
