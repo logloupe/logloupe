@@ -28,8 +28,8 @@ const MAX_PATTERN_LEN: usize = 500;
 const MAX_NAME_LEN: usize = 4096;
 const MAX_FILES: usize = 10_000;
 const MAX_LISTING_BYTES: u64 = 4 << 20;
-const LIST_BEGIN: &str = "LOGLOUPE-LIST-BEGIN";
-const LIST_END: &str = "LOGLOUPE-LIST-END";
+pub(crate) const LIST_BEGIN: &str = "LOGLOUPE-LIST-BEGIN";
+pub(crate) const LIST_END: &str = "LOGLOUPE-LIST-END";
 /// Download progress is reported at most once per this many bytes.
 const PROGRESS_EVERY_BYTES: u64 = 1 << 20;
 /// Temporary files older than this were left by a crash.

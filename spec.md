@@ -470,7 +470,7 @@ logloupe geo update | status
 logloupe db stats [<slug>] | files <slug> | prune <slug> --before DATE [--rollups] | delete-file <slug> <file-id>
         | clear <slug> | compact <slug>
 logloupe reenrich <slug> [--from DATE] [--to DATE] [--only ua,source,geo,bots]
-logloupe mcp                           # serve the reports to an AI assistant on stdin and stdout (7.3)
+logloupe mcp [--allow-fetch]           # serve the reports to an AI assistant on stdin and stdout (7.3)
 ```
 
 Global flags: `--data-dir`, `--memory-limit`, `--threads`, `--wait-lock <seconds>`, `--quiet`, `--json`, `--offline` (never fetch; use only the cached ranges).
@@ -524,12 +524,19 @@ This envelope is the integration point for Laravel (invoke the binary from a que
 - **Where the code is.** The protocol and the tools are in the engine (`crates/core/src/mcp.rs`): `Server::handle` takes one JSON-RPC message and returns the reply, or nothing for a notification. The command-line tool is only the stdio transport: one message per line on standard input, one reply per line on standard output, and nothing else ever written there. A later HTTP transport (the server version) passes request bodies to the same function, so the tools cannot differ between the two.
 - **Transport.** Standard input and output only. For logs on a server, the client runs `ssh <host> logloupe mcp`; SSH provides the encryption and the authentication, and no port is opened. HTTP waits for the server version, because it needs what that needs: tokens, login and advice on TLS.
 - **Protocol.** JSON-RPC 2.0 written by hand over `serde_json`, with no new dependency: `initialize`, `ping`, `tools/list`, `tools/call`. It accepts protocol revisions 2025-06-18, 2025-03-26 and 2024-11-05 and offers the newest when asked for one it does not know. No resources, prompts or sampling. Batches are refused.
-- **Tools, all read-only** (each opens the site read-only and is marked `readOnlyHint`):
+- **Four read-only tools** (each opens the site read-only and is marked `readOnlyHint`):
   - `list_sites`: the same listing as `site list --json`.
   - `list_reports`: names, descriptions and tables.
   - `run_report`: `site`, `report`, then the date range and every filter the `report` command takes, as flat arguments, plus `granularity`, `threshold`, `table`, `sort`, `descending`, `limit`, `offset`. The reply is the envelope of 7.2, unchanged. `limit` defaults to 50 and is capped at 500, since a reply is read into an assistant's context.
   - `block_list`: `site`, the filters, `by`, `style`, `min_hits`, `limit`. Returns text and a count. Verified bots and local addresses are left out as everywhere else (6.3.6), and the result says that nothing has been applied.
-- **Nothing that writes**: no ingest, fetch, settings, pruning or deleting. Adding a tool that changes anything, or one that makes a network request, needs a decision here first.
+- **One tool that writes, and only when asked for** (owner's decision, 2026-11-18). `logloupe mcp --allow-fetch` adds `fetch_logs`, so an assistant can bring a site up to date before reporting on it. It is `remote::fetch` (9.6), the same call as `logloupe fetch`, with these limits:
+  - Off by default. Without the flag the tool is not listed, a call to it is refused with a message naming the flag, and the server makes no connection of any kind. This keeps the rule that every outbound call is one the user starts or can switch off: here the user switches it on, and the assistant then decides when. `--allow-fetch` with `--offline` is an error.
+  - Arguments are `site` and `days` only. The host and paths are the ones saved for the site (9.3) and already validated (9.4); nothing the assistant sends reaches the `ssh` command line or the remote script. There is no `force`, so stored rows are never replaced, and no way to set, change or remove a site's server.
+  - A site with no server set up is refused before anything else happens.
+  - It refreshes bot IP ranges older than a day first, as `logloupe fetch` does, and reports any that could not be updated.
+  - It is marked `readOnlyHint: false`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`, so a client can ask the user before running it.
+  - Known limits: no progress is reported while it runs and it cannot be cancelled, so a large first fetch may outlast the client's time limit (the fetch itself carries on and finishes).
+- **Nothing else that writes**: no ingest of local files, settings, pruning or deleting, and no other network request. Adding one needs a decision here first.
 - **Errors.** A tool that fails (no such site, a bad filter, a locked site) returns a result with `isError` and the message followed by the stable error code, so the assistant can correct itself. Only a malformed call is a JSON-RPC error. An argument the tool does not have is refused, so that a misspelt filter is not silently ignored.
 - **Untrusted content.** Report rows carry text from the logs, which the requester wrote, and an assistant may read it as instructions. The server cannot prevent that; what it does is state in its `instructions` and in the `run_report` description that this text is data, keep every tool read-only so that nothing here can be turned against the user's sites, and keep replies small. Arguments from the assistant are treated like any other input: the site name is validated, filters are escaped (`report::quote`), and the sort column is matched against the table's own columns.
 

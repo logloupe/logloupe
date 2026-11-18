@@ -57,7 +57,7 @@ In the app this is on the Ingest screen, under "Fetch from a server". The design
 
 Not in a release yet; build from source to use it.
 
-`logloupe mcp` is a [Model Context Protocol](https://modelcontextprotocol.io) server on standard input and output, so an assistant can read your sites alongside its other data. It offers four tools, all read-only: `list_sites`, `list_reports`, `run_report` (every report, with the same filters, paging and sorting as the command line) and `block_list`.
+`logloupe mcp` is a [Model Context Protocol](https://modelcontextprotocol.io) server on standard input and output, so an assistant can read your sites alongside its other data. It offers four tools, all read-only: `list_sites`, `list_reports`, `run_report` (every report, with the same filters, paging and sorting as the command line) and `block_list`. Started as `logloupe mcp --allow-fetch`, it adds a fifth, `fetch_logs`, which lets the assistant pull the latest logs for a site that has a server set up (see below).
 
 Most clients take a command to run. In their JSON configuration that is:
 
@@ -68,8 +68,11 @@ Most clients take a command to run. In their JSON configuration that is:
 or, for Claude Code, `claude mcp add logloupe -- logloupe mcp`.
 
 - **Logs on a server:** install `logloupe` there and use `ssh` as the command, for example `"command": "ssh", "args": ["web1", "logloupe", "mcp"]`. SSH does the encryption and the login, and the server opens no port. There is no HTTP transport yet, so a client that can only connect to a URL cannot use it.
-- **It uses the same data directory as the app and the CLI.** Add `--data-dir`, or set `LOGLOUPE_DATA_DIR`, to point it elsewhere. A site that is being ingested at that moment answers "in use"; `--wait-lock 30` makes it wait instead.
-- **Nothing can be changed through it.** It cannot ingest, fetch, delete or change settings, and a block list is only text: nothing is applied anywhere.
+- **It uses the same data directory as the app and the CLI.** To point it elsewhere, put `--data-dir <folder>` before `mcp` in the arguments. Do not rely on `LOGLOUPE_DATA_DIR` here: many clients start a server with a cut-down environment that leaves it out. A site that is being ingested at that moment answers "in use"; `--wait-lock 30` makes it wait instead.
+- **Nothing can be changed through it unless you say so.** As `logloupe mcp` it cannot ingest, fetch, delete or change settings, it connects to nothing, and a block list is only text: nothing is applied anywhere.
+- **`--allow-fetch` adds one tool that does more.** `fetch_logs` does what `logloupe fetch <site>` does: over SSH, it downloads log files that are new or have grown on the server you set up for that site, and adds their requests. The assistant chooses only the site and, optionally, how many days back to look. It cannot name a host or a path, cannot replace rows already stored, and deletes nothing. It needs `ssh <host>` to work without a prompt, as fetching always does, and it first updates bot IP ranges older than a day. The assistant decides when to call it, so leave the flag off if every connection should be one you start yourself. A large first fetch can outlast a client's time limit for a tool call; run `logloupe fetch` yourself the first time.
+
+To try it without an assistant, the MCP Inspector is a test client: `npx @modelcontextprotocol/inspector logloupe mcp` opens a page where you can call each tool by hand, and `npx @modelcontextprotocol/inspector --cli logloupe mcp --method tools/list` prints the tools in a terminal.
 - **Report rows contain text from your logs**, which whoever made each request chose (paths, referrers, user agents). The server tells the assistant to treat that as data, but an assistant that also has tools which can act deserves the usual care. A table is 50 rows unless more are asked for, and never more than 500 at a time.
 
 ## Desktop app

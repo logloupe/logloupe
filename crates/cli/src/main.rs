@@ -91,7 +91,12 @@ enum Command {
     /// Print the busiest addresses or networks as a block list to paste into a server config
     Blocklist(BlocklistArgs),
     /// Serve reports to an AI assistant over the Model Context Protocol, on standard input and output
-    Mcp,
+    Mcp {
+        /// Also let the assistant fetch new logs from a site's server over SSH and ingest them.
+        /// Without this the server is read-only and connects to nothing
+        #[arg(long = "allow-fetch")]
+        allow_fetch: bool,
+    },
 }
 
 #[derive(Args)]
@@ -470,7 +475,7 @@ fn run(cli: Cli, json: bool) -> Result<()> {
         dns: cli.global.dns && !cli.global.offline,
     };
     match cli.command {
-        Command::Mcp => serve_mcp(app),
+        Command::Mcp { allow_fetch } => serve_mcp(app, allow_fetch),
         Command::Site(command) => site(&app, command),
         Command::Ingest(args) => run_ingest(&app, args),
         Command::Fetch(args) => run_fetch(&app, args),
@@ -488,9 +493,18 @@ fn run(cli: Cli, json: bool) -> Result<()> {
 /// The stdio transport for the engine's MCP server: one JSON-RPC message per
 /// line in, one per line out, until standard input closes. Standard output
 /// carries nothing but protocol messages.
-fn serve_mcp(app: App) -> Result<()> {
+fn serve_mcp(app: App, allow_fetch: bool) -> Result<()> {
+    use logloupe_core::mcp::{Fetching, Server};
     use std::io::BufRead;
-    let server = logloupe_core::mcp::Server::new(app.dir, app.opts);
+    let mut server = Server::new(app.dir.clone(), app.opts.clone());
+    if allow_fetch {
+        need_network(&app, "mcp --allow-fetch")?;
+        server = server.allow_fetch(Fetching {
+            transport: Box::new(Ssh::new()),
+            refresh_ranges: true,
+            dns: app.dns,
+        });
+    }
     let mut out = std::io::stdout().lock();
     for line in std::io::stdin().lock().lines() {
         let line = line?;

@@ -10,7 +10,7 @@ Last updated: 2026-11-18. The history was rewritten on 2026-11-16, so commit has
 - The owner uses the installed app on real client logs.
 - The repository is `logloupe/logloupe` on GitHub, **public** since 2026-11-17. Release 0.1.0 was published on 2026-11-17 after the owner installed it over the previous copy and confirmed the data was kept. It is unsigned. The website at logloupe.com is built in a separate session. Version 0.2.0 (SSH fetch and the SEO crawl reports) was tagged on 2026-11-18; the workflow builds it into a **draft** release, which is not public until the owner has installed it and published it. Until then the website's brief still says both features are unreleased; tell that session when the draft is published.
 - The project lives in `C:\log-analyser`. It was moved off the USB drive `D:` on 2026-11-17 after that drive kept disconnecting; the old copy on `D:` is stale.
-- 101 tests, all passing. `cargo clippy` is clean with warnings as errors.
+- 102 tests, all passing. `cargo clippy` is clean with warnings as errors.
 
 ## Next up, in order
 
@@ -43,7 +43,8 @@ Things built and tested in the engine or from the command line, but not exercise
 - [ ] The owner ran a fetch from the "Fetch from a server" card on 2026-11-17 and it worked. The bot IP range status line and the "Do not refresh bot IP ranges first" switch were added after that and have not been looked at in the app.
 - [ ] **SEO crawl reports on real logs.** Built and tested on 2026-11-17 against a hand-written fixture and a generated 30 MB log, from the command line and by opening all six screens in the app. The owner tried the app build the same day and was happy with it; changes will follow from use. Not confirmed on a real site's logs, so possibly unseen: how the waste patterns read on real URLs, Googlebot Image / Video / News user agents, a site with assets crawled, a large site's speed (each screen runs two to four grouped queries over the crawler rows), and the "slowest" table, which needs a log with response times.
 - [ ] The "Bot address" (verified state) choice in the app's filter bar is new and was not clicked through; the SEO screens were only opened with no filters set.
-- [ ] **`logloupe mcp` with a real client.** Tested on 2026-11-18 through its own tests and by piping a whole session (initialize, tools/list, three tool calls) into the built program on generated data, where its block list matched the command line's. Never connected to an actual MCP client (Claude Code, Claude Desktop or another), so unseen: whether each accepts the handshake and the tool schemas as written, how an assistant copes with the size of a report, running it through `ssh`, and what a client does when a site is locked.
+- [ ] **`logloupe mcp` with an assistant.** Tested on 2026-11-18 through its own tests, by piping a whole session into the built program on generated data (its block list matched the command line's), and with the MCP Inspector's command-line client, which connected, listed the tools with and without `--allow-fetch`, ran a report and got the "no server set up" refusal from `fetch_logs`. Never connected to an assistant (Claude Code, Claude Desktop or another), so unseen: how one copes with the size of a report, running it through `ssh`, and what a client does when a site is locked. That run also showed that a client may not pass `LOGLOUPE_DATA_DIR` on, so the README says to use `--data-dir`.
+- [ ] **`fetch_logs` against a real server.** Only tested with a stand-in server in the engine's tests. Not seen: a real fetch started by an assistant, how long a client waits before giving up on one, and whether clients ask before running a tool marked as not read-only.
 - [ ] Column sorting and the time zone picker (2026-11-18) were driven in the real app on generated data: the three-click cycle on the All bots table, and searching for, choosing and saving a zone when editing a site. Not looked at: sorting on other screens, sorting then paging or exporting by hand, the picker in the "Add site" form, dark mode.
 
 - [ ] Dark mode on every screen (the chart is the likeliest problem).
@@ -60,6 +61,7 @@ Things built and tested in the engine or from the command line, but not exercise
 - [ ] Rollup fallback for pruned days exists only for the Overview report (3.5). Sources, geography and bots report on remaining raw rows and say so.
 - [ ] `reenrich` takes no date range and does not recompute `source_type` after hostnames change (5.4). Re-ingest with `--force` is the workaround.
 - [ ] Arbitrary CIDR filters: only an exact address, an IPv4 /24 or an IPv6 /48 work (3.2).
+- [ ] MCP: `fetch_logs` reports no progress and cannot be cancelled; `list_sites` does not say which sites have a server set up, so an assistant finds out by trying.
 - [ ] The time zone picker opens at the top of its list, not at the zone currently chosen.
 - [ ] No threshold control for Bursts in the app (`--threshold` exists in the CLI).
 - [ ] Block lists by provider (ASN) are not possible: there is no offline list of an ASN's prefixes.
@@ -111,6 +113,7 @@ Things built and tested in the engine or from the command line, but not exercise
 - [x] `remote set|show|remove|list` and `fetch` (9.7)
 - [x] `site timezones [search]`
 - [x] `mcp`: a read-only Model Context Protocol server on standard input and output, for AI assistants (7.3). Four tools: `list_sites`, `list_reports`, `run_report`, `block_list`. The protocol and tools are in `crates/core/src/mcp.rs`; the command is only the transport
+- [x] `mcp --allow-fetch`: adds `fetch_logs`, so the assistant can pull the latest logs for a site that has a server set up. Off by default; takes only a site and a number of days; never replaces stored rows
 
 ### Desktop app
 
