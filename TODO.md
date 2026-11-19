@@ -2,13 +2,13 @@
 
 The single list of what is done and what is left. Update it in the same commit as the work: tick the item, move it if priorities change, and add anything new that comes up. The design behind each item is in [spec.md](spec.md); section numbers below refer to it.
 
-Last updated: 2026-11-18. The history was rewritten on 2026-11-16, so commit hashes quoted anywhere before then no longer exist.
+Last updated: 2026-11-19. The history was rewritten on 2026-11-16, so commit hashes quoted anywhere before then no longer exist.
 
 ## Where things stand
 
 - Engine, command-line tool and desktop app all work on Windows. CI passes on Windows, macOS and Linux (build and tests only; the app has never been opened on macOS or Linux).
 - The owner uses the installed app on real client logs.
-- The repository is `logloupe/logloupe` on GitHub, **public** since 2026-11-17. Release 0.1.0 was published on 2026-11-17 after the owner installed it over the previous copy and confirmed the data was kept. It is unsigned. The website at logloupe.com is built in a separate session. Version 0.2.0 (SSH fetch and the SEO crawl reports) was tagged on 2026-11-18; the workflow builds it into a **draft** release, which is not public until the owner has installed it and published it. Until then the website's brief still says both features are unreleased; tell that session when the draft is published.
+- The repository is `logloupe/logloupe` on GitHub, **public** since 2026-11-17. Release 0.1.0 was published on 2026-11-17 after the owner installed it over the previous copy and confirmed the data was kept. It is unsigned. The website at logloupe.com is built in a separate session. Version 0.2.0 (SSH fetch and the SEO crawl reports) was tagged on 2026-11-18; the workflow builds it into a **draft** release, which is not public until the owner has installed it and published it. Until then the website's brief still says both features are unreleased; tell that session when the draft is published. Version 0.3.0 (sortable tables, the time zone picker, the MCP server and its Settings card) was tagged on 2026-11-19 and is likewise a draft until the owner has installed it. It contains everything in 0.2.0, so only one of the two needs publishing.
 - The project lives in `C:\log-analyser`. It was moved off the USB drive `D:` on 2026-11-17 after that drive kept disconnecting; the old copy on `D:` is stale.
 - 102 tests, all passing. `cargo clippy` is clean with warnings as errors.
 
@@ -27,7 +27,8 @@ Last updated: 2026-11-18. The history was rewritten on 2026-11-16, so commit has
 
 ## Waiting on the owner
 
-- [ ] Publish the 0.2.0 draft release. The owner installed it on a second computer and used it on 2026-11-18 (the notes behind sorting, the time zone picker and MCP came from that session); it was still a draft on GitHub that day. Once published, the README status line ("Built since the last release") and the website's brief need bringing up to date.
+- [ ] Install the 0.3.0 draft on the second computer, try connecting an assistant from the Settings card ("Use with an AI assistant"), then publish it. The 0.2.0 draft can be deleted or published first; 0.3.0 replaces it either way.
+- [ ] Publish the 0.2.0 draft release (or skip it for 0.3.0). The owner installed it on a second computer and used it on 2026-11-18 (the notes behind sorting, the time zone picker and MCP came from that session); it was still a draft on GitHub that day. Once published, the README status line ("Built since the last release") and the website's brief need bringing up to date.
 - [ ] Sample log in a custom nginx `log_format`. Most of the owner's servers use the standard nginx format. One, managed through WHM, may not; its Apache logs are easy to get, its nginx ones not yet. What is needed is the `log_format` line from that server's nginx configuration (`grep -rn log_format /etc/nginx/`) and a few lines of the log it describes, kept in `samples/`.
 - [ ] Try the SSH fetch on a cPanel account if one is to hand.
 - [ ] SignPath declined the application of 2026-11-17 (reported by the owner on 2026-11-18) and said to apply again once the project has more traction. Releases stay unsigned until then. When re-applying: download figures and other evidence of use are what was missing. If approved: add the signing step to the release workflow, change the code signing policy to the present tense, and tell the website.

@@ -139,7 +139,7 @@ export async function mockInvoke<T>(command: string, args?: Record<string, unkno
   await new Promise((resolve) => setTimeout(resolve, 150))
   const data: Record<string, () => unknown> = {
     app_info: () => ({
-      version: '0.2.0',
+      version: '0.3.0',
       data_dir: 'C:\\Users\\you\\AppData\\Roaming\\logloupe',
       exe: 'C:\\Users\\you\\AppData\\Local\\Logloupe\\logloupe-app.exe',
     }),

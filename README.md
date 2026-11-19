@@ -4,7 +4,7 @@ Analyses web server access logs: traffic sources, bots, abuse and crawl problems
 
 One Rust engine (`crates/core`) with a command-line tool (`crates/cli`) and a desktop app (`crates/app`). The full design is in [spec.md](spec.md), and what is done and what is left is in [TODO.md](TODO.md).
 
-Status: **early release.** Working today: ingest of plain and gzip combined-format logs (nginx, Apache, cPanel), de-duplication, traffic, bot and abuse reports, bot verification, country and network lookup, and block lists. Built since the last release: fetching logs from a server over SSH, and the SEO crawl reports (what verified search crawlers fetched, the errors and redirects they were served, crawl waste, robots.txt and sitemap fetches, Googlebot smartphone against desktop). Not built yet: custom log formats, and the reports that need a sitemap (uncrawled and orphan URLs). The desktop app is only built for Windows so far.
+Status: **early release.** Working today: ingest of plain and gzip combined-format logs (nginx, Apache, cPanel), de-duplication, traffic, bot and abuse reports, bot verification, country and network lookup, and block lists. Built since the last release: fetching logs from a server over SSH, and the SEO crawl reports (what verified search crawlers fetched, the errors and redirects they were served, crawl waste, robots.txt and sitemap fetches, Googlebot smartphone against desktop), sortable tables, a time zone picker, and an MCP server so an AI assistant can read the reports. Not built yet: custom log formats, and the reports that need a sitemap (uncrawled and orphan URLs). The desktop app is only built for Windows so far.
 
 ## Download and install
 
