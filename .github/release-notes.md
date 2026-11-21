@@ -24,6 +24,6 @@ To update, download the newer installer and run it over the old one. Your data i
 
 ## Code signing policy
 
-Releases are built by GitHub Actions from the tagged source. They are not signed: the project applied to the SignPath Foundation programme for open source projects and was asked to apply again once it is more widely used. If a later application is approved, releases will carry free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org). The full [code signing policy](https://github.com/logloupe/logloupe#code-signing-policy), with team roles and the privacy statement, is in the README.
+Releases are built by GitHub Actions from the tagged source. The full [code signing policy](https://github.com/logloupe/logloupe#code-signing-policy), with team roles and the privacy statement, is in the README.
 
 See the [README](https://github.com/logloupe/logloupe#readme) for how to use it and the privacy notes.

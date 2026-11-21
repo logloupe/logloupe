@@ -132,7 +132,7 @@ IP geolocation by [DB-IP](https://db-ip.com), used under its Creative Commons At
 
 Releases are built by GitHub Actions from the tagged source in this repository ([release.yml](.github/workflows/release.yml)); nothing is built or altered by hand.
 
-The Windows installer is **not signed yet**. The project applied to the SignPath Foundation programme for open source projects in November 2026 and was asked to apply again once it is more widely used, so Windows will warn about an unknown publisher when you run the installer; each release comes with a `SHA256SUMS.txt` to check the download against. If a later application is approved, releases will carry: free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org). Every signed release will be approved by hand by an approver listed below.
+The Windows installer is **not signed yet**, so Windows will warn about an unknown publisher when you run the installer; each release comes with a `SHA256SUMS.txt` to check the download against.
 
 - Committers and reviewers: [robwent](https://github.com/robwent)
 - Approvers: [robwent](https://github.com/robwent)
